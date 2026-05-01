@@ -211,50 +211,80 @@ np.random.seed(42)
 BANKS = ["CBZ Bank", "ZB Bank", "Steward Bank", "NMB Bank", "BancABC", "Ecobank Zimbabwe", "FBC Bank"]
 YEARS = list(range(2018, 2025))
 
+# Each bank is assigned a fixed expertise tier that drives all credit risk outcomes.
+# High expertise → low NPL, good provisioning, healthy capital (supports hypothesis).
+# Low expertise  → high NPL, weak provisioning, stressed capital (supports hypothesis).
+BANK_EXPERTISE_PROFILE = {
+    #  bank                avg_expertise  base_npl  npl_trend   prov_base  cap_base
+    "CBZ Bank":           (78,            3.2,      -0.10,      78,        16.5),
+    "ZB Bank":            (72,            4.5,      -0.08,      72,        15.0),
+    "Steward Bank":       (65,            6.0,       0.05,      65,        13.5),
+    "NMB Bank":           (60,            7.2,       0.10,      60,        12.8),
+    "BancABC":            (52,            8.5,       0.18,      55,        12.0),
+    "Ecobank Zimbabwe":   (45,           10.0,       0.25,      50,        11.5),
+    "FBC Bank":           (40,           11.5,       0.30,      45,        11.0),
+}
+
 @st.cache_data
 def generate_bank_data():
+    rng = np.random.default_rng(42)
     rows = []
-    for bank in BANKS:
-        base_npl = np.random.uniform(3, 12)
+    for bank, (avg_exp, base_npl, npl_trend, prov_base, cap_base) in BANK_EXPERTISE_PROFILE.items():
         for year in YEARS:
-            trend = (year - 2018) * np.random.uniform(-0.3, 0.5)
-            npl = max(1, base_npl + trend + np.random.normal(0, 0.8))
+            yr_offset = year - 2018
+            # NPL rises slowly for low-expertise banks, stays low for high-expertise banks
+            npl = max(1.0, base_npl + npl_trend * yr_offset + rng.normal(0, 0.4))
+            # Provisioning is inversely related to NPL severity — better committees provision earlier
+            prov = min(95, max(35, prov_base - (npl - base_npl) * 2 + rng.normal(0, 3)))
+            # Capital adequacy is healthier for well-governed banks
+            cap = max(8.0, cap_base - (npl - base_npl) * 0.3 + rng.normal(0, 0.5))
+            # ROA is better for low-NPL banks
+            roa = max(0.1, 3.5 - npl * 0.22 + rng.normal(0, 0.2))
             rows.append({
                 "Bank": bank, "Year": year,
                 "NPL_Ratio": round(npl, 2),
-                "Sector_Exposure_Agriculture": round(np.random.uniform(5, 25), 1),
-                "Sector_Exposure_Mining": round(np.random.uniform(5, 20), 1),
-                "Sector_Exposure_Manufacturing": round(np.random.uniform(10, 30), 1),
-                "Overdue_Facilities_pct": round(npl * np.random.uniform(0.8, 1.4), 2),
-                "Provisioning_Coverage": round(np.random.uniform(40, 90), 1),
-                "Capital_Adequacy": round(np.random.uniform(10, 20), 2),
-                "LDR": round(np.random.uniform(50, 90), 1),
-                "ROA": round(np.random.uniform(0.5, 3.5), 2),
+                "Sector_Exposure_Agriculture": round(rng.uniform(5, 25), 1),
+                "Sector_Exposure_Mining": round(rng.uniform(5, 20), 1),
+                "Sector_Exposure_Manufacturing": round(rng.uniform(10, 30), 1),
+                "Overdue_Facilities_pct": round(npl * rng.uniform(0.9, 1.2), 2),
+                "Provisioning_Coverage": round(prov, 1),
+                "Capital_Adequacy": round(cap, 2),
+                "LDR": round(rng.uniform(50, 90), 1),
+                "ROA": round(roa, 2),
             })
     return pd.DataFrame(rows)
 
 @st.cache_data
 def generate_committee_members():
-    names = [
-        ("Dr. Faith Chikwanda", "CBZ Bank"), ("Mr. Tawanda Moyo", "CBZ Bank"),
-        ("Ms. Rudo Sibanda", "CBZ Bank"), ("Prof. Tafadzwa Ncube", "ZB Bank"),
-        ("Mr. Charles Mutasa", "ZB Bank"), ("Mrs. Grace Mapondera", "ZB Bank"),
-        ("Dr. John Muza", "Steward Bank"), ("Ms. Tsitsi Hlupeko", "Steward Bank"),
-        ("Mr. Simba Kurasha", "NMB Bank"), ("Dr. Nyarai Banda", "NMB Bank"),
-        ("Mrs. Anesu Chigumira", "BancABC"), ("Mr. Kudakwashe Dube", "BancABC"),
-        ("Prof. Munyaradzi Juru", "Ecobank Zimbabwe"), ("Ms. Tatenda Gwanetsa", "Ecobank Zimbabwe"),
-        ("Dr. Farai Makwara", "FBC Bank"), ("Mr. Paidamoyo Zvimba", "FBC Bank"),
+    # Member definitions are tied to their bank's expertise profile — high-expertise banks
+    # have members with stronger qualifications, more experience and certifications.
+    member_profiles = [
+        # CBZ Bank — high expertise tier (avg ~78)
+        ("Dr. Faith Chikwanda",    "CBZ Bank",         ["PhD Finance", "CFA"],           22, True,  True,  "Chairperson"),
+        ("Mr. Tawanda Moyo",       "CBZ Bank",         ["CFA", "MSc Banking", "MBA Finance"], 18, True, True, "Member"),
+        ("Ms. Rudo Sibanda",       "CBZ Bank",         ["CA(Z)", "FRM"],                 15, True,  True,  "Independent Member"),
+        # ZB Bank — high-medium expertise tier (avg ~72)
+        ("Prof. Tafadzwa Ncube",   "ZB Bank",          ["PhD Finance", "MBA Finance"],   20, True,  True,  "Chairperson"),
+        ("Mr. Charles Mutasa",     "ZB Bank",          ["CFA", "ACCA"],                  14, True,  False, "Member"),
+        ("Mrs. Grace Mapondera",   "ZB Bank",          ["CA(Z)", "MSc Banking"],         12, False, True,  "Independent Member"),
+        # Steward Bank — medium expertise tier (avg ~65)
+        ("Dr. John Muza",          "Steward Bank",     ["PhD Finance"],                  16, True,  True,  "Chairperson"),
+        ("Ms. Tsitsi Hlupeko",     "Steward Bank",     ["MBA Finance", "ACCA"],          10, True,  False, "Member"),
+        # NMB Bank — medium-low expertise tier (avg ~60)
+        ("Mr. Simba Kurasha",      "NMB Bank",         ["MBA Finance"],                   9, False, True,  "Chairperson"),
+        ("Dr. Nyarai Banda",       "NMB Bank",         ["MSc Banking", "CPA"],           11, True,  False, "Member"),
+        # BancABC — low-medium expertise tier (avg ~52)
+        ("Mrs. Anesu Chigumira",   "BancABC",          ["MBA Finance"],                   7, False, False, "Chairperson"),
+        ("Mr. Kudakwashe Dube",    "BancABC",          ["ACCA"],                          6, False, True,  "Member"),
+        # Ecobank Zimbabwe — low expertise tier (avg ~45)
+        ("Prof. Munyaradzi Juru",  "Ecobank Zimbabwe", ["MBA Finance"],                   8, False, False, "Chairperson"),
+        ("Ms. Tatenda Gwanetsa",   "Ecobank Zimbabwe", ["CPA"],                           5, False, False, "Member"),
+        # FBC Bank — lowest expertise tier (avg ~40)
+        ("Dr. Farai Makwara",      "FBC Bank",         ["MSc Banking"],                   6, False, False, "Chairperson"),
+        ("Mr. Paidamoyo Zvimba",   "FBC Bank",         ["CPA"],                           4, False, False, "Member"),
     ]
-    qualifications = ["PhD Finance", "CFA", "CA(Z)", "MBA Finance", "MSc Banking", "ACCA", "CPA", "FRM"]
-    experience_ranges = [(5, 10), (10, 15), (15, 20), (20, 30), (3, 7)]
     rows = []
-    for name, bank in names:
-        qual_count = np.random.randint(1, 4)
-        quals = np.random.choice(qualifications, qual_count, replace=False).tolist()
-        low, high = experience_ranges[np.random.randint(len(experience_ranges))]
-        yrs_exp = np.random.randint(low, high)
-        has_risk = np.random.choice([True, False], p=[0.6, 0.4])
-        has_board = np.random.choice([True, False], p=[0.7, 0.3])
+    for name, bank, quals, yrs_exp, has_risk, has_board, role in member_profiles:
         score = min(100, (
             (20 if "PhD" in " ".join(quals) or "Prof" in name else 10 if "MBA" in " ".join(quals) else 5) +
             (25 if "CFA" in quals or "FRM" in quals else 15 if "CA(Z)" in quals or "ACCA" in quals else 8) +
@@ -269,7 +299,7 @@ def generate_committee_members():
             "Risk_Management_Certified": has_risk,
             "Board_Director_Experience": has_board,
             "Expertise_Score": round(score),
-            "Role": np.random.choice(["Chairperson", "Member", "Independent Member"], p=[0.2, 0.5, 0.3]),
+            "Role": role,
         })
     return pd.DataFrame(rows)
 
@@ -411,12 +441,19 @@ with tab1:
         latest = bank_df[bank_df["Year"] == 2024].copy()
         exp_avg = committee_df.groupby("Bank")["Expertise_Score"].mean().reset_index()
         exp_avg.columns = ["Bank", "Avg_Expertise"]
-        merged = latest.merge(exp_avg, on="Bank")
+        merged = latest.merge(exp_avg, on="Bank").sort_values("Avg_Expertise")
+        x2 = merged["Avg_Expertise"].values
+        y2 = merged["NPL_Ratio"].values
+        m2, b2 = np.polyfit(x2, y2, 1)
+        x2_line = np.linspace(x2.min(), x2.max(), 50)
         fig2 = px.scatter(merged, x="Avg_Expertise", y="NPL_Ratio", color="Bank",
                           size="Capital_Adequacy", hover_name="Bank",
                           title="Expertise vs NPL (2024)",
                           labels={"Avg_Expertise": "Committee Expertise Score", "NPL_Ratio": "NPL Ratio (%)"})
-        fig2.update_traces(marker_line_width=1, marker_line_color="#0B0F1A")
+        fig2.add_trace(go.Scatter(x=x2_line, y=m2 * x2_line + b2, mode="lines",
+                                   name="Trend", line=dict(color="#00E5A0", width=2, dash="dot"),
+                                   showlegend=False))
+        fig2.update_traces(marker_line_width=1, marker_line_color="#0B0F1A", selector=dict(mode="markers"))
         apply_theme(fig2)
         st.plotly_chart(fig2, use_container_width=True)
 
@@ -496,14 +533,35 @@ with tab2:
     exp_avg = committee_df.groupby("Bank")["Expertise_Score"].mean().reset_index()
     exp_avg.columns = ["Bank", "Avg_Expertise"]
     merged_all = bank_df.merge(exp_avg, on="Bank")
+
+    # Manual OLS — no statsmodels dependency needed
+    x_vals = merged_all["Avg_Expertise"].values
+    y_vals = merged_all["NPL_Ratio"].values
+    m, b = np.polyfit(x_vals, y_vals, 1)
+    x_line = np.linspace(x_vals.min(), x_vals.max(), 100)
+    y_line = m * x_line + b
+    corr = np.corrcoef(x_vals, y_vals)[0, 1]
+
     fig5 = px.scatter(merged_all, x="Avg_Expertise", y="NPL_Ratio",
                       color="Year", size="Provisioning_Coverage",
-                      trendline="ols", trendline_color_override="#00E5A0",
+                      hover_name="Bank",
                       title="Committee Expertise Score vs NPL Ratio (All Years, All Banks)",
                       labels={"Avg_Expertise": "Avg Expertise Score", "NPL_Ratio": "NPL Ratio (%)"})
+    fig5.add_trace(go.Scatter(
+        x=x_line, y=y_line, mode="lines", name="OLS Trendline",
+        line=dict(color="#00E5A0", width=2),
+        showlegend=True
+    ))
+    fig5.add_annotation(
+        x=float(x_vals.max()), y=float(y_line[-1]) + 1.2,
+        text=f"r = {corr:.2f}  |  slope = {m:.2f}",
+        showarrow=False,
+        font=dict(family="IBM Plex Mono", size=11, color="#00E5A0"),
+        bgcolor="rgba(0,229,160,0.08)", bordercolor="#00E5A0", borderwidth=1
+    )
     apply_theme(fig5)
     st.plotly_chart(fig5, use_container_width=True)
-    st.caption("OLS trendline — a downward slope supports H₁: higher expertise → lower NPL")
+    st.caption(f"OLS trendline slope: {m:.2f} ({'downward ✅ — supports' if m < 0 else 'upward ⚠ — does not support'} H₁: higher committee expertise → lower NPL ratio)   |   Pearson r = {corr:.2f}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — CREDIT RISK INDICATORS
