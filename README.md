@@ -23,4 +23,3 @@ The app opens at http://localhost:8501
 
 ## Data
 The app uses synthetic but realistic sample data for 7 Zimbabwean banks (2018–2024).
-Replace `generate_bank_data()` and `generate_committee_members()` with database calls or CSV reads for production use.
