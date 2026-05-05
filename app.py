@@ -212,22 +212,82 @@ def import_from_api(api_key):
     return REAL_BANK_DATA.copy()
 
 def import_from_manual_upload(uploaded_file):
-    """Handle manual CSV/Excel upload"""
+    """Handle manual CSV/Excel upload - properly parse the Excel structure"""
     try:
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-        else:
-            df = pd.read_excel(uploaded_file)
-        # Ensure column names are standardized
+        # Try to read with different approaches
+        xl = pd.ExcelFile(uploaded_file)
+        
+        # Try "Panel Data" sheet first
+        sheet_name = "Panel Data" if "Panel Data" in xl.sheet_names else xl.sheet_names[0]
+        
+        # Read the file, skip the first 3 rows of headers
+        df = pd.read_excel(uploaded_file, sheet_name=sheet_name, skiprows=3)
+        
+        # Define the expected column order from your Excel
+        # Column mapping based on the actual structure
+        column_mapping = {
+            df.columns[0]: "Bank",           # Column A
+            df.columns[1]: "Year",           # Column B
+            df.columns[3]: "RCFE",           # Column D
+            df.columns[4]: "Board_Independence",  # Column E
+            df.columns[5]: "RC_Size",        # Column F
+            df.columns[6]: "NPL_Ratio",      # Column G
+            df.columns[9]: "GDP_Growth",     # Column J
+            df.columns[10]: "Policy_Rate",   # Column K
+            df.columns[12]: "Bank_Size",     # Column M
+            df.columns[13]: "Capital_Adequacy",  # Column N
+            df.columns[14]: "ROA",           # Column O
+            df.columns[15]: "Loan_to_Deposit",   # Column P
+        }
+        
+        # Rename the columns
+        df = df.rename(columns=column_mapping)
+        
+        # Keep only the columns we need
+        required_cols = ["Bank", "Year", "RCFE", "NPL_Ratio", "Board_Independence", 
+                        "RC_Size", "GDP_Growth", "Policy_Rate", "Bank_Size", 
+                        "Capital_Adequacy", "ROA", "Loan_to_Deposit"]
+        
+        # Only keep columns that exist
+        existing_cols = [col for col in required_cols if col in df.columns]
+        df = df[existing_cols]
+        
+        # Drop rows with missing essential data
+        df = df.dropna(subset=["Bank", "Year", "NPL_Ratio"])
+        
+        # Convert Year to integer
+        df["Year"] = pd.to_numeric(df["Year"], errors="coerce").astype("Int64")
+        
+        # Drop any remaining rows with NaN in key columns
+        df = df.dropna()
+        
+        if len(df) == 0:
+            st.warning("No valid data found in file. Using embedded dataset.")
+            return REAL_BANK_DATA.copy()
+        
         return df
+        
     except Exception as e:
         st.error(f"Error reading file: {e}")
-        return None
+        st.warning("Falling back to embedded dataset")
+        return REAL_BANK_DATA.copy()
 
 # ─── Panel Regression Model ───────────────────────────────────────────────────
 def run_panel_regression(df):
     """Run panel regression analysis"""
     df_clean = df.copy().dropna()
+    
+    # Make sure we have all required columns
+    required_cols = ["RCFE", "Board_Independence", "RC_Size", "GDP_Growth", 
+                     "Policy_Rate", "Bank_Size", "Capital_Adequacy", "ROA", "Loan_to_Deposit"]
+    
+    # Check which columns exist
+    available_cols = [col for col in required_cols if col in df_clean.columns]
+    
+    if "Loan_to_Deposit" not in df_clean.columns:
+        st.warning("Loan_to_Deposit column not found. Creating from available data.")
+        # Create a placeholder if missing
+        df_clean["Loan_to_Deposit"] = 50.0
     
     # Dependent and independent variables
     y = df_clean["NPL_Ratio"]
@@ -394,12 +454,13 @@ def main_app():
         elif import_option == "Manual Upload":
             uploaded_file = st.file_uploader("Upload CSV/Excel", type=["csv", "xlsx"])
             if uploaded_file and st.button("Import File", use_container_width=True):
-                df = import_from_manual_upload(uploaded_file)
-                if df is not None:
-                    st.session_state.current_data = df
-                    st.session_state.data_source = "Manual Upload"
-                    st.success(f"Imported {len(df)} records")
-                    st.rerun()
+                with st.spinner("Processing file..."):
+                    df = import_from_manual_upload(uploaded_file)
+                    if df is not None:
+                        st.session_state.current_data = df
+                        st.session_state.data_source = "Manual Upload"
+                        st.success(f"Imported {len(df)} records")
+                        st.rerun()
         
         else:
             api_key = st.text_input("API Key", type="password", placeholder="Enter API key")
@@ -456,7 +517,7 @@ def main_app():
     
     df = st.session_state.current_data
     
-    # Verify columns exist - if not, show error
+    # Verify columns exist
     required_cols = ["NPL_Ratio", "RCFE", "Capital_Adequacy", "ROA", "Bank", "Year"]
     missing_cols = [col for col in required_cols if col not in df.columns]
     if missing_cols:
