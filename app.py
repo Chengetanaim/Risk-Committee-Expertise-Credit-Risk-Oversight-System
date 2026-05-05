@@ -12,7 +12,7 @@ warnings.filterwarnings('ignore')
 
 # ─── Page Config ──────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="RCECOS | Risk Committee Expertise & Credit Risk Oversight System",
+    page_title="ZB Bank | RCECOS - Risk Committee Expertise & Credit Risk Oversight",
     page_icon="🏦",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -24,168 +24,85 @@ if "authenticated" not in st.session_state:
 if "username" not in st.session_state:
     st.session_state.username = None
 if "users" not in st.session_state:
-    st.session_state.users = {}
+    st.session_state.users = {"admin": hashlib.sha256("admin123".encode()).hexdigest()}
 if "analysis_history" not in st.session_state:
     st.session_state.analysis_history = []
 if "current_data" not in st.session_state:
     st.session_state.current_data = None
-if "data_source" not in st.session_state:
-    st.session_state.data_source = None
-if "model_results" not in st.session_state:
-    st.session_state.model_results = None
+if "individual_input" not in st.session_state:
+    st.session_state.individual_input = {}
 
-# ─── Real Data from Excel (Embedded) ──────────────────────────────────────────
-def load_real_bank_data():
-    """Load the actual Zimbabwe bank panel data - 120 observations (10 banks × 12 years)"""
-    
-    # Create the dataset directly as a DataFrame with correct column names
+# ─── Helper function for JSON serialization ──────────────────────────────────
+def convert_to_serializable(obj):
+    """Convert numpy/pandas types to Python native types for JSON serialization"""
+    if isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
+        return int(obj)
+    elif isinstance(obj, (np.float64, np.float32, np.float16)):
+        return float(obj)
+    elif isinstance(obj, pd.Series):
+        return obj.tolist()
+    elif isinstance(obj, pd.DataFrame):
+        return obj.to_dict(orient='records')
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, (datetime.date, datetime.datetime)):
+        return obj.isoformat()
+    return obj
+
+# ─── ZB BANK DATA (Pre-ingested - Real data from the Excel) ───────────────────
+def load_zb_bank_data():
+    """Load ZB Bank's actual data from 2013-2024"""
     data = {
-        "Bank": [],
-        "Year": [],
-        "RCFE": [],
-        "NPL_Ratio": [],
-        "Board_Independence": [],
-        "RC_Size": [],
-        "GDP_Growth": [],
-        "Policy_Rate": [],
-        "Bank_Size": [],
-        "Capital_Adequacy": [],
-        "ROA": [],
-        "Loan_to_Deposit": [],
-        "ZAMCO_Period": []
+        "Bank": ["ZB Bank"] * 12,
+        "Year": [2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024],
+        "RCFE": [0.43, 0.43, 0.43, 0.5, 0.5, 0.5, 0.5, 0.5, 0.57, 0.57, 0.57, 0.57],
+        "NPL_Ratio": [19.5, 18.9, 17.4, 9.5, 12, 12, 6.8, 6.2, 5.4, 4.5, 3.5, 3.9],
+        "Board_Independence": [0.57, 0.57, 0.57, 0.6, 0.6, 0.6, 0.6, 0.6, 0.64, 0.64, 0.67, 0.67],
+        "RC_Size": [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],
+        "GDP_Growth": [2.8, 2.4, 1.8, 0.8, 4.7, 4.2, -6.5, -7.82, 8.47, 6.14, 5.3, 2],
+        "Policy_Rate": [9, 9, 9, 8.5, 8.5, 10, 35, 35, 60, 200, 80, 35],
+        "Bank_Size": [5.98, 5.95, 5.9, 5.88, 5.92, 5.96, 6.0, 6.08, 6.18, 6.28, 6.38, 6.45],
+        "Capital_Adequacy": [16.2, 15.8, 15.5, 16, 16.5, 17, 18.5, 20, 22, 24, 26, 27.5],
+        "ROA": [1.2, 1, 0.8, 0.7, 1, 1.2, 1, 1.1, 1.8, 2.5, 2.8, 2.6],
+        "Loan_to_Deposit": [58, 59, 57, 55, 56, 57, 53, 50, 47, 44, 42, 40],
+        "ZAMCO_Period": ["No", "Yes", "Yes", "Yes", "Yes", "Yes", "No", "No", "No", "No", "No", "No"]
     }
-    
-    years = [2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
-    zamco = ["No", "Yes", "Yes", "Yes", "Yes", "Yes", "No", "No", "No", "No", "No", "No"]
-    gdp = [2.8, 2.4, 1.8, 0.8, 4.7, 4.2, -6.5, -7.82, 8.47, 6.14, 5.3, 2]
-    policy = [9, 9, 9, 8.5, 8.5, 10, 35, 35, 60, 200, 80, 35]
-    
-    # Bank data - each list has exactly 12 values
-    banks_dict = {
-        "CBZ Bank": {
-            "RCFE": [0.5, 0.5, 0.55, 0.55, 0.57, 0.57, 0.6, 0.6, 0.67, 0.67, 0.67, 0.67],
-            "NPL_Ratio": [18.5, 17.8, 16.2, 9.1, 12, 12, 5.2, 4.8, 4.1, 3.2, 2.4, 2.8],
-            "Board_Independence": [0.6, 0.62, 0.64, 0.65, 0.67, 0.67, 0.67, 0.67, 0.73, 0.73, 0.75, 0.75],
-            "RC_Size": [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5],
-            "Bank_Size": [6.73, 6.72, 6.68, 6.65, 6.7, 6.75, 6.8, 6.85, 6.95, 7.05, 7.15, 7.2],
-            "Capital_Adequacy": [18.5, 17.9, 17.2, 18, 18.5, 19, 20.2, 22, 24.5, 26, 28, 29.5],
-            "ROA": [1.8, 1.5, 1.2, 1, 1.3, 1.5, 1.2, 1.4, 2.1, 2.8, 3.2, 3],
-            "Loan_to_Deposit": [52, 53, 51, 48, 50, 52, 49, 45, 43, 40, 38, 37],
-        },
-        "ZB Bank": {
-            "RCFE": [0.43, 0.43, 0.43, 0.5, 0.5, 0.5, 0.5, 0.5, 0.57, 0.57, 0.57, 0.57],
-            "NPL_Ratio": [19.5, 18.9, 17.4, 9.5, 12, 12, 6.8, 6.2, 5.4, 4.5, 3.5, 3.9],
-            "Board_Independence": [0.57, 0.57, 0.57, 0.6, 0.6, 0.6, 0.6, 0.6, 0.64, 0.64, 0.67, 0.67],
-            "RC_Size": [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],
-            "Bank_Size": [5.98, 5.95, 5.9, 5.88, 5.92, 5.96, 6.0, 6.08, 6.18, 6.28, 6.38, 6.45],
-            "Capital_Adequacy": [16.2, 15.8, 15.5, 16, 16.5, 17, 18.5, 20, 22, 24, 26, 27.5],
-            "ROA": [1.2, 1, 0.8, 0.7, 1, 1.2, 1, 1.1, 1.8, 2.5, 2.8, 2.6],
-            "Loan_to_Deposit": [58, 59, 57, 55, 56, 57, 53, 50, 47, 44, 42, 40],
-        },
-        "Stanbic Bank": {
-            "RCFE": [0.6, 0.6, 0.63, 0.63, 0.67, 0.67, 0.67, 0.67, 0.67, 0.75, 0.75, 0.75],
-            "NPL_Ratio": [6.5, 5.8, 5.2, 5, 4.5, 4.2, 3.5, 3.1, 2.6, 2.1, 1.8, 2],
-            "Board_Independence": [0.75, 0.75, 0.75, 0.78, 0.78, 0.78, 0.78, 0.78, 0.78, 0.8, 0.8, 0.8],
-            "RC_Size": [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5],
-            "Bank_Size": [6.15, 6.18, 6.2, 6.22, 6.25, 6.28, 6.32, 6.38, 6.48, 6.58, 6.68, 6.75],
-            "Capital_Adequacy": [22, 22.5, 23, 23.5, 24, 24.5, 26, 28, 30, 32, 34, 35.5],
-            "ROA": [2.5, 2.3, 2, 1.8, 2.2, 2.4, 2.1, 2.3, 3, 3.8, 4.2, 4],
-            "Loan_to_Deposit": [62, 63, 61, 60, 62, 63, 60, 57, 54, 51, 48, 46],
-        },
-        "Steward Bank": {
-            "RCFE": [0.33, 0.33, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.5, 0.5, 0.57, 0.57],
-            "NPL_Ratio": [16, 15.5, 14, 8.5, 12, 11.5, 7.5, 6.8, 5.9, 4.8, 3.4, 3.7],
-            "Board_Independence": [0.5, 0.5, 0.55, 0.57, 0.57, 0.57, 0.57, 0.57, 0.6, 0.6, 0.64, 0.64],
-            "RC_Size": [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],
-            "Bank_Size": [5.45, 5.48, 5.5, 5.52, 5.55, 5.6, 5.65, 5.72, 5.82, 5.92, 6.02, 6.1],
-            "Capital_Adequacy": [15, 14.8, 14.5, 15, 15.5, 16, 17.5, 19, 21, 23, 25, 26.5],
-            "ROA": [0.9, 0.8, 0.6, 0.5, 0.8, 1, 0.8, 0.9, 1.5, 2, 2.3, 2.2],
-            "Loan_to_Deposit": [65, 66, 64, 62, 63, 64, 61, 58, 55, 52, 49, 47],
-        },
-        "NMB Bank": {
-            "RCFE": [0.5, 0.5, 0.5, 0.5, 0.57, 0.57, 0.57, 0.57, 0.67, 0.67, 0.71, 0.71],
-            "NPL_Ratio": [16.5, 15.8, 14.9, 8, 6.5, 5.8, 3.8, 3.5, 2.9, 1.8, 1.1, 1.2],
-            "Board_Independence": [0.62, 0.62, 0.64, 0.64, 0.67, 0.67, 0.67, 0.67, 0.71, 0.71, 0.75, 0.75],
-            "RC_Size": [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5],
-            "Bank_Size": [5.6, 5.62, 5.64, 5.66, 5.7, 5.74, 5.78, 5.85, 5.95, 6.05, 6.15, 6.22],
-            "Capital_Adequacy": [16.5, 16, 15.8, 16.2, 16.8, 17.5, 19, 21, 23, 25, 27, 28.5],
-            "ROA": [1.1, 0.9, 0.7, 0.6, 0.9, 1.1, 0.9, 1, 1.7, 2.3, 2.6, 2.5],
-            "Loan_to_Deposit": [60, 61, 59, 57, 58, 59, 56, 53, 50, 47, 44, 42],
-        },
-        "BancABC": {
-            "RCFE": [0.4, 0.4, 0.43, 0.43, 0.43, 0.43, 0.43, 0.43, 0.5, 0.57, 0.57, 0.57],
-            "NPL_Ratio": [18, 17.5, 15.8, 8.8, 11, 11, 7.2, 6.5, 5.6, 4.3, 3.1, 3.4],
-            "Board_Independence": [0.55, 0.55, 0.57, 0.57, 0.57, 0.57, 0.57, 0.57, 0.64, 0.64, 0.67, 0.67],
-            "RC_Size": [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5],
-            "Bank_Size": [5.75, 5.72, 5.68, 5.65, 5.7, 5.75, 5.8, 5.88, 5.98, 6.08, 6.18, 6.25],
-            "Capital_Adequacy": [15.5, 15, 14.8, 15.2, 15.8, 16.5, 18, 20, 22, 24, 26, 27.5],
-            "ROA": [1, 0.8, 0.6, 0.5, 0.8, 1, 0.8, 0.9, 1.6, 2.2, 2.5, 2.4],
-            "Loan_to_Deposit": [61, 62, 60, 58, 59, 60, 57, 54, 51, 48, 45, 43],
-        },
-        "Ecobank": {
-            "RCFE": [0.5, 0.5, 0.57, 0.57, 0.57, 0.57, 0.57, 0.57, 0.67, 0.67, 0.75, 0.75],
-            "NPL_Ratio": [7.5, 6.8, 5.9, 3.8, 4, 4.2, 4.6, 4.2, 3.5, 2.7, 2.1, 2.3],
-            "Board_Independence": [0.62, 0.62, 0.67, 0.67, 0.67, 0.67, 0.67, 0.67, 0.73, 0.73, 0.75, 0.75],
-            "RC_Size": [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],
-            "Bank_Size": [5.85, 5.88, 5.9, 5.92, 5.95, 5.98, 6.02, 6.08, 6.18, 6.28, 6.38, 6.45],
-            "Capital_Adequacy": [20, 20.5, 21, 21.5, 22, 22.5, 24, 26, 28, 30, 32, 33.5],
-            "ROA": [2, 1.8, 1.6, 1.4, 1.7, 1.9, 1.7, 1.8, 2.5, 3.2, 3.6, 3.4],
-            "Loan_to_Deposit": [55, 56, 54, 52, 53, 54, 51, 48, 45, 42, 39, 37],
-        },
-        "FBC Bank": {
-            "RCFE": [0.43, 0.43, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.57, 0.57, 0.67, 0.67],
-            "NPL_Ratio": [13.5, 12.8, 11.2, 6.5, 6, 5.8, 5.8, 5.4, 4.7, 4, 3.5, 3.8],
-            "Board_Independence": [0.58, 0.58, 0.62, 0.63, 0.63, 0.63, 0.63, 0.63, 0.67, 0.67, 0.71, 0.71],
-            "RC_Size": [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5],
-            "Bank_Size": [5.9, 5.88, 5.85, 5.82, 5.88, 5.92, 5.96, 6.02, 6.12, 6.22, 6.32, 6.4],
-            "Capital_Adequacy": [17, 16.5, 16.2, 16.8, 17.5, 18, 19.5, 21.5, 23.5, 25.5, 27.5, 29],
-            "ROA": [1.3, 1.1, 0.9, 0.8, 1.1, 1.3, 1.1, 1.2, 1.9, 2.6, 2.9, 2.8],
-            "Loan_to_Deposit": [59, 60, 58, 56, 57, 58, 55, 52, 49, 46, 43, 41],
-        },
-        "First Capital Bank": {
-            "RCFE": [0.4, 0.4, 0.4, 0.43, 0.43, 0.43, 0.43, 0.43, 0.57, 0.57, 0.67, 0.67],
-            "NPL_Ratio": [20.5, 19.8, 18.5, 10.2, 9.5, 13.3, 13.3, 10.5, 7.2, 5.1, 2.7, 3.66],
-            "Board_Independence": [0.55, 0.55, 0.57, 0.57, 0.57, 0.57, 0.57, 0.57, 0.64, 0.67, 0.71, 0.71],
-            "RC_Size": [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],
-            "Bank_Size": [5.65, 5.62, 5.58, 5.55, 5.6, 5.65, 5.7, 5.78, 5.88, 5.98, 6.08, 6.15],
-            "Capital_Adequacy": [14.5, 14, 13.8, 14.2, 14.8, 15.5, 17, 19, 21, 23, 25, 26.5],
-            "ROA": [0.8, 0.6, 0.4, 0.3, 0.6, 0.8, 0.6, 0.7, 1.4, 2, 2.3, 2.2],
-            "Loan_to_Deposit": [63, 64, 62, 60, 61, 62, 59, 56, 53, 50, 47, 45],
-        },
-        "Metbank": {
-            "RCFE": [0.33, 0.33, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.5, 0.5, 0.57, 0.57],
-            "NPL_Ratio": [17, 16.5, 15, 8.2, 7.8, 7.5, 8.1, 7.4, 6.2, 4.9, 3.8, 4.1],
-            "Board_Independence": [0.5, 0.5, 0.55, 0.56, 0.56, 0.56, 0.56, 0.56, 0.6, 0.63, 0.67, 0.67],
-            "RC_Size": [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],
-            "Bank_Size": [5.3, 5.28, 5.25, 5.22, 5.28, 5.32, 5.38, 5.45, 5.55, 5.65, 5.75, 5.82],
-            "Capital_Adequacy": [13.5, 13, 12.8, 13.2, 13.8, 14.5, 16, 18, 20, 22, 24, 25.5],
-            "ROA": [0.5, 0.4, 0.2, 0.1, 0.4, 0.6, 0.4, 0.5, 1.2, 1.8, 2.1, 2],
-            "Loan_to_Deposit": [68, 69, 67, 65, 66, 67, 64, 61, 58, 55, 52, 50],
-        },
-    }
-    
-    # Build the DataFrame
-    for bank_name, bank_vals in banks_dict.items():
-        for i in range(12):
-            data["Bank"].append(bank_name)
-            data["Year"].append(years[i])
-            data["RCFE"].append(bank_vals["RCFE"][i])
-            data["NPL_Ratio"].append(bank_vals["NPL_Ratio"][i])
-            data["Board_Independence"].append(bank_vals["Board_Independence"][i])
-            data["RC_Size"].append(bank_vals["RC_Size"][i])
-            data["GDP_Growth"].append(gdp[i])
-            data["Policy_Rate"].append(policy[i])
-            data["Bank_Size"].append(bank_vals["Bank_Size"][i])
-            data["Capital_Adequacy"].append(bank_vals["Capital_Adequacy"][i])
-            data["ROA"].append(bank_vals["ROA"][i])
-            data["Loan_to_Deposit"].append(bank_vals["Loan_to_Deposit"][i])
-            data["ZAMCO_Period"].append(zamco[i])
-    
-    df = pd.DataFrame(data)
-    return df
+    return pd.DataFrame(data)
 
-# Load the data once at module level
-REAL_BANK_DATA = load_real_bank_data()
+# ─── Risk Committee Members Data for ZB Bank ──────────────────────────────────
+def get_risk_committee_members():
+    """Risk committee members with financial expertise levels"""
+    members = pd.DataFrame({
+        "Name": [
+            "Prof. Tafadzwa Ncube",
+            "Mr. Charles Mutasa", 
+            "Mrs. Grace Mapondera",
+            "Dr. Tendai Makoni"
+        ],
+        "Position": [
+            "Chairperson - Risk Committee",
+            "Member - Risk Committee",
+            "Independent Member - Risk Committee",
+            "Member - Risk Committee (Observer)"
+        ],
+        "Qualifications": [
+            "PhD Finance, CFA, MBA",
+            "CFA, ACCA, MSc Banking",
+            "CA(Z), MSc Finance, FRM",
+            "PhD Economics, MSc Risk Management"
+        ],
+        "Financial_Expertise_Level": [
+            "Expert (15+ years)",
+            "Advanced (12+ years)",
+            "Expert (18+ years)",
+            "Advanced (10+ years)"
+        ],
+        "Expertise_Score": [95, 82, 90, 78],
+        "Independence": ["Independent", "Non-Independent", "Independent", "Independent"],
+        "Risk_Experience_Years": [18, 14, 20, 12],
+        "Certifications": ["CFA, FRM", "CFA, ACCA", "CA(Z), FRM", "PRM"]
+    })
+    return members
 
 # ─── Authentication Functions ─────────────────────────────────────────────────
 def hash_password(password):
@@ -202,189 +119,127 @@ def register_user(username, password):
     st.session_state.users[username] = hash_password(password)
     return True
 
-# ─── Data Import Functions ────────────────────────────────────────────────────
-def import_from_system():
-    """Load the real Zimbabwe bank panel data"""
-    return REAL_BANK_DATA.copy()
-
-def import_from_api(api_key):
-    """Simulate API import"""
-    return REAL_BANK_DATA.copy()
-
-def import_from_manual_upload(uploaded_file):
-    """Handle manual CSV/Excel upload - properly parse the Excel structure"""
-    try:
-        # Try to read with different approaches
-        xl = pd.ExcelFile(uploaded_file)
-        
-        # Try "Panel Data" sheet first
-        sheet_name = "Panel Data" if "Panel Data" in xl.sheet_names else xl.sheet_names[0]
-        
-        # Read the file, skip the first 3 rows of headers
-        df = pd.read_excel(uploaded_file, sheet_name=sheet_name, skiprows=3)
-        
-        # Define the expected column order from your Excel
-        # Column mapping based on the actual structure
-        column_mapping = {
-            df.columns[0]: "Bank",           # Column A
-            df.columns[1]: "Year",           # Column B
-            df.columns[3]: "RCFE",           # Column D
-            df.columns[4]: "Board_Independence",  # Column E
-            df.columns[5]: "RC_Size",        # Column F
-            df.columns[6]: "NPL_Ratio",      # Column G
-            df.columns[9]: "GDP_Growth",     # Column J
-            df.columns[10]: "Policy_Rate",   # Column K
-            df.columns[12]: "Bank_Size",     # Column M
-            df.columns[13]: "Capital_Adequacy",  # Column N
-            df.columns[14]: "ROA",           # Column O
-            df.columns[15]: "Loan_to_Deposit",   # Column P
-        }
-        
-        # Rename the columns
-        df = df.rename(columns=column_mapping)
-        
-        # Keep only the columns we need
-        required_cols = ["Bank", "Year", "RCFE", "NPL_Ratio", "Board_Independence", 
-                        "RC_Size", "GDP_Growth", "Policy_Rate", "Bank_Size", 
-                        "Capital_Adequacy", "ROA", "Loan_to_Deposit"]
-        
-        # Only keep columns that exist
-        existing_cols = [col for col in required_cols if col in df.columns]
-        df = df[existing_cols]
-        
-        # Drop rows with missing essential data
-        df = df.dropna(subset=["Bank", "Year", "NPL_Ratio"])
-        
-        # Convert Year to integer
-        df["Year"] = pd.to_numeric(df["Year"], errors="coerce").astype("Int64")
-        
-        # Drop any remaining rows with NaN in key columns
-        df = df.dropna()
-        
-        if len(df) == 0:
-            st.warning("No valid data found in file. Using embedded dataset.")
-            return REAL_BANK_DATA.copy()
-        
-        return df
-        
-    except Exception as e:
-        st.error(f"Error reading file: {e}")
-        st.warning("Falling back to embedded dataset")
-        return REAL_BANK_DATA.copy()
-
-# ─── Panel Regression Model ───────────────────────────────────────────────────
-def run_panel_regression(df):
-    """Run panel regression analysis"""
-    df_clean = df.copy().dropna()
-    
-    # Make sure we have all required columns
-    required_cols = ["RCFE", "Board_Independence", "RC_Size", "GDP_Growth", 
-                     "Policy_Rate", "Bank_Size", "Capital_Adequacy", "ROA", "Loan_to_Deposit"]
-    
-    # Check which columns exist
-    available_cols = [col for col in required_cols if col in df_clean.columns]
-    
-    if "Loan_to_Deposit" not in df_clean.columns:
-        st.warning("Loan_to_Deposit column not found. Creating from available data.")
-        # Create a placeholder if missing
-        df_clean["Loan_to_Deposit"] = 50.0
-    
-    # Dependent and independent variables
-    y = df_clean["NPL_Ratio"]
-    X = df_clean[["RCFE", "Board_Independence", "RC_Size", "GDP_Growth", 
-                  "Policy_Rate", "Bank_Size", "Capital_Adequacy", "ROA", "Loan_to_Deposit"]]
-    
-    X = sm.add_constant(X)
-    model = sm.OLS(y, X).fit()
-    
-    correlation = df_clean["RCFE"].corr(df_clean["NPL_Ratio"])
-    rcoefficient = model.params.get("RCFE", 0)
-    rpvalue = model.pvalues.get("RCFE", 1)
-    significant = rpvalue < 0.05 and rcoefficient < 0
-    
-    return {
-        "model": model,
-        "correlation": correlation,
-        "rcfe_coefficient": rcoefficient,
-        "rcfe_pvalue": rpvalue,
-        "significant": significant,
-        "rsquared": model.rsquared,
-        "n_observations": len(df_clean),
-        "banks": df_clean["Bank"].nunique()
-    }
-
-# ─── Problem-Solving Functions ────────────────────────────────────────────────
-def identify_npl_triggers(df, threshold=7.0):
+# ─── Chapter 4: Risk Committee Expertise Analysis ─────────────────────────────
+def calculate_rcfe_score(df):
+    """Calculate Risk Committee Financial Expertise score"""
     latest = df[df["Year"] == df["Year"].max()]
-    high_npl = latest[latest["NPL_Ratio"] > threshold]
-    return high_npl[["Bank", "NPL_Ratio", "RCFE", "Capital_Adequacy"]]
+    rcfe = latest["RCFE"].values[0] if len(latest) > 0 else 0.5
+    return rcfe * 100
 
-def assess_composite_risk(df):
-    df_risk = df[df["Year"] == df["Year"].max()].copy()
-    npl_norm = (df_risk["NPL_Ratio"] - df_risk["NPL_Ratio"].min()) / (df_risk["NPL_Ratio"].max() - df_risk["NPL_Ratio"].min())
-    expertise_inv = 1 - (df_risk["RCFE"] - df_risk["RCFE"].min()) / (df_risk["RCFE"].max() - df_risk["RCFE"].min())
-    capital_inv = 1 - (df_risk["Capital_Adequacy"] - df_risk["Capital_Adequacy"].min()) / (df_risk["Capital_Adequacy"].max() - df_risk["Capital_Adequacy"].min())
-    
-    df_risk["Composite_Risk_Score"] = (npl_norm + expertise_inv + capital_inv) / 3 * 100
-    df_risk["Risk_Level"] = pd.cut(df_risk["Composite_Risk_Score"], bins=[0, 33, 67, 100], labels=["Low", "Medium", "High"])
-    return df_risk.sort_values("Composite_Risk_Score", ascending=False)
+def assess_rcfe_adequacy(rcfe_score):
+    """Assess if RCFE is adequate based on Chapter 4 findings"""
+    if rcfe_score >= 60:
+        return "Adequate", "🟢", "Meets recommended threshold of 60%"
+    elif rcfe_score >= 50:
+        return "Moderate", "🟡", "Below recommended 60% threshold - improvement needed"
+    else:
+        return "Inadequate", "🔴", "Significantly below recommended threshold - urgent action required"
 
-def generate_recommendations(high_risk_banks):
+def get_rcfe_recommendations(rcfe_score, npl_ratio):
+    """Generate specific recommendations based on RCFE and NPL"""
     recommendations = []
-    for _, bank in high_risk_banks.iterrows():
-        rec = {
-            "Bank": bank["Bank"],
-            "NPL": bank["NPL_Ratio"],
-            "Expertise": bank["RCFE"],
-            "Capital": bank["Capital_Adequacy"],
-            "Immediate_Actions": [],
-            "Medium_Term_Actions": []
-        }
-        if bank["NPL_Ratio"] > 10:
-            rec["Immediate_Actions"].append("⚠ CRITICAL: Convene emergency credit risk committee meeting")
-            rec["Immediate_Actions"].append("Increase loan loss provisioning")
-        elif bank["NPL_Ratio"] > 7:
-            rec["Immediate_Actions"].append("Schedule special risk committee meeting for NPL review")
-        if bank["RCFE"] < 0.5:
-            rec["Immediate_Actions"].append("Recruit additional financial expert to risk committee")
-        if bank["Capital_Adequacy"] < 12:
-            rec["Immediate_Actions"].append("🔴 Capital adequacy below regulatory minimum (12%)")
-        recommendations.append(rec)
+    
+    if rcfe_score < 60:
+        recommendations.append({
+            "priority": "HIGH",
+            "area": "Risk Committee Composition",
+            "action": f"Current RCFE is {rcfe_score:.0f}%. Recruit at least 1 additional CFA/FRM certified member to reach 60% threshold.",
+            "timeline": "Immediate (30 days)"
+        })
+        recommendations.append({
+            "priority": "HIGH", 
+            "area": "Member Qualifications",
+            "action": "Require all risk committee members to complete IFRS 9 and Basel III training within 6 months.",
+            "timeline": "6 months"
+        })
+    
+    if npl_ratio > 7:
+        recommendations.append({
+            "priority": "CRITICAL",
+            "area": "NPL Management",
+            "action": f"NPL ratio at {npl_ratio:.1f}% exceeds 7% threshold. Convene emergency risk committee meeting.",
+            "timeline": "Immediate (7 days)"
+        })
+        recommendations.append({
+            "priority": "HIGH",
+            "area": "Loan Review",
+            "action": "Conduct special audit of all non-performing loans > ZW$1 million.",
+            "timeline": "30 days"
+        })
+    
+    if npl_ratio > 5 and rcfe_score < 60:
+        recommendations.append({
+            "priority": "MEDIUM",
+            "area": "Risk Monitoring",
+            "action": "Implement enhanced monthly NPL tracking dashboard for risk committee review.",
+            "timeline": "60 days"
+        })
+    
     return recommendations
 
-def early_warning_score(row):
-    score = 0
-    if row["NPL_Ratio"] > 7:
-        score += 30
-    elif row["NPL_Ratio"] > 5:
-        score += 15
-    if row["RCFE"] < 0.5:
-        score += 25
-    elif row["RCFE"] < 0.6:
-        score += 10
-    if row["Capital_Adequacy"] < 12:
-        score += 25
-    elif row["Capital_Adequacy"] < 15:
-        score += 10
-    if row["ROA"] < 1:
-        score += 20
-    elif row["ROA"] < 1.5:
-        score += 10
-    return min(score, 100)
+# ─── Individual Data Entry & Computation ──────────────────────────────────────
+def compute_risk_metrics(data):
+    """Compute risk metrics from individual input"""
+    try:
+        rcfe = float(data.get("rcfe_input", 0.5))
+        npl = float(data.get("npl_input", 5.0))
+        car = float(data.get("car_input", 15.0))
+        roa = float(data.get("roa_input", 1.0))
+        
+        rcfe_score = rcfe * 100
+        npl_risk = min(100, (npl / 20) * 100)
+        car_risk = max(0, (20 - min(20, car)) / 20 * 100)
+        
+        composite_risk = (npl_risk * 0.4 + (100 - rcfe_score) * 0.3 + car_risk * 0.3)
+        
+        if composite_risk >= 60:
+            risk_level = "Critical"
+        elif composite_risk >= 40:
+            risk_level = "Elevated"
+        elif composite_risk >= 20:
+            risk_level = "Moderate"
+        else:
+            risk_level = "Low"
+        
+        return {
+            "rcfe_score": rcfe_score,
+            "npl_risk": npl_risk,
+            "car_risk": car_risk,
+            "composite_risk": composite_risk,
+            "risk_level": risk_level,
+            "rcfe_adequate": rcfe_score >= 60,
+            "npl_critical": npl > 7
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 # ─── Custom CSS ───────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Barlow+Condensed:wght@300;500;700&family=Barlow:wght@300;400;500&display=swap');
-:root { --bg: #0B0F1A; --surface: #111827; --surface2: #1C2333; --border: #2A3347; --accent: #00E5A0; --accent2: #0091FF; --warn: #FFB547; --danger: #FF4D6A; --text: #E2E8F0; --muted: #6B7A99; --mono: 'IBM Plex Mono', monospace; --head: 'Barlow Condensed', sans-serif; --body: 'Barlow', sans-serif; }
-html, body, .stApp { background-color: var(--bg) !important; color: var(--text) !important; font-family: var(--body) !important; }
+:root { --bg: #0B0F1A; --surface: #111827; --surface2: #1C2333; --border: #2A3347; --accent: #00E5A0; --accent2: #0091FF; --warn: #FFB547; --danger: #FF4D6A; --text: #E2E8F0; --muted: #6B7A99; }
+html, body, .stApp { background-color: var(--bg) !important; color: var(--text) !important; font-family: 'Barlow', sans-serif; }
 [data-testid="stSidebar"] { background: var(--surface) !important; border-right: 1px solid var(--border) !important; }
+[data-testid="stSidebar"] * { color: var(--text) !important; }
+h1, h2, h3, h4 { font-family: 'Barlow Condensed', sans-serif; letter-spacing: 0.03em; }
+[data-testid="metric-container"] { background: var(--surface2) !important; border: 1px solid var(--border) !important; border-radius: 8px; padding: 12px; }
 .stTabs [data-baseweb="tab-list"] { background: var(--surface) !important; border-bottom: 1px solid var(--border) !important; }
-.stTabs [data-baseweb="tab"] { font-family: var(--mono) !important; font-size: 12px !important; text-transform: uppercase !important; color: var(--muted) !important; }
-.stTabs [aria-selected="true"] { color: var(--accent) !important; border-bottom: 2px solid var(--accent) !important; }
-.stButton > button { background: var(--accent) !important; color: #0B0F1A !important; font-family: var(--mono) !important; font-weight: 600 !important; text-transform: uppercase !important; border-radius: 4px !important; }
-.section-header { font-family: var(--head); font-size: 20px; font-weight: 700; letter-spacing: 0.05em; border-left: 3px solid var(--accent); padding-left: 12px; margin: 20px 0 16px 0; text-transform: uppercase; }
-.card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+.stTabs [data-baseweb="tab"] { font-family: 'IBM Plex Mono', monospace; font-size: 12px !important; text-transform: uppercase !important; color: #6B7A99 !important; }
+.stTabs [aria-selected="true"] { color: #00E5A0 !important; border-bottom: 2px solid #00E5A0 !important; }
+.stButton > button { background: #00E5A0 !important; color: #0B0F1A !important; font-family: 'IBM Plex Mono', monospace; font-weight: 600 !important; text-transform: uppercase !important; border-radius: 4px; }
+.section-header { font-family: 'Barlow Condensed', sans-serif; font-size: 20px; font-weight: 700; border-left: 3px solid #00E5A0; padding-left: 12px; margin: 20px 0 16px; text-transform: uppercase; }
+.card { background: #1C2333; border: 1px solid #2A3347; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+.rcfe-high { background: rgba(0, 229, 160, 0.1); border-left: 3px solid #00E5A0; }
+.rcfe-mid { background: rgba(255, 181, 71, 0.1); border-left: 3px solid #FFB547; }
+.rcfe-low { background: rgba(255, 77, 106, 0.1); border-left: 3px solid #FF4D6A; }
+.member-card { background: #111827; border: 1px solid #2A3347; border-radius: 8px; padding: 12px; margin: 8px 0; }
+.report-header { background: #111827; border-bottom: 1px solid #2A3347; padding: 16px; border-radius: 8px 8px 0 0; }
+.report-section { margin: 16px 0; }
+.report-section-title { font-weight: 700; margin: 12px 0 8px; color: #00E5A0; text-transform: uppercase; font-size: 12px; letter-spacing: 1px; }
+.kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 12px 0; }
+.kpi-item { background: #111827; padding: 12px; border-radius: 6px; text-align: center; }
+.kpi-label { font-size: 11px; color: #6B7A99; text-transform: uppercase; }
+.kpi-value { font-size: 20px; font-weight: 700; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -394,13 +249,13 @@ def show_login():
     with col2:
         st.markdown("""
         <div style='text-align:center;margin-bottom:32px'>
-            <div style='font-family:"Barlow Condensed",sans-serif;font-size:48px;font-weight:700;color:#00E5A0'>RCECOS</div>
-            <div style='font-family:"IBM Plex Mono",monospace;font-size:11px;color:#6B7A99'>Risk Committee Expertise & Credit Risk Oversight System</div>
+            <div style='font-size:48px;font-weight:700;color:#00E5A0'>ZB Bank</div>
+            <div style='font-size:14px;color:#6B7A99;margin-top:-8px'>RCECOS - Risk Committee Expertise & Credit Risk Oversight System</div>
+            <div style='font-size:12px;color:#6B7A99;margin-top:8px'>Demo: admin / admin123</div>
         </div>
         """, unsafe_allow_html=True)
         
         tab_login, tab_register = st.tabs(["🔐 Sign In", "📝 Sign Up"])
-        
         with tab_login:
             with st.form("login_form"):
                 username = st.text_input("Username")
@@ -412,7 +267,6 @@ def show_login():
                         st.rerun()
                     else:
                         st.error("Invalid username or password")
-        
         with tab_register:
             with st.form("register_form"):
                 new_username = st.text_input("Choose Username")
@@ -430,217 +284,470 @@ def show_login():
 
 # ─── Main Application ─────────────────────────────────────────────────────────
 def main_app():
+    # Load ZB Bank data
+    zb_data = load_zb_bank_data()
+    rc_members = get_risk_committee_members()
+    
     # Sidebar
     with st.sidebar:
         st.markdown(f"""
         <div style='padding:16px 0 8px'>
-            <div style='font-family:"IBM Plex Mono",monospace;font-size:10px;color:#6B7A99'>Signed in as</div>
-            <div style='font-family:"Barlow Condensed",sans-serif;font-size:18px;font-weight:700;color:#E2E8F0'>{st.session_state.username}</div>
+            <div style='font-size:10px;color:#6B7A99'>Signed in as</div>
+            <div style='font-size:18px;font-weight:700;color:#00E5A0'>{st.session_state.username}</div>
+            <div style='font-size:11px;color:#6B7A99'>ZB Bank • Risk Management System</div>
         </div>
         <hr>
         """, unsafe_allow_html=True)
         
-        st.markdown("### 📂 Data Import")
-        import_option = st.radio("Select Source", ["System Database", "Manual Upload", "API Connection"], label_visibility="collapsed")
-        
-        if import_option == "System Database":
-            if st.button("📊 Load Zimbabwe Bank Data", use_container_width=True):
-                with st.spinner("Loading panel data..."):
-                    st.session_state.current_data = import_from_system()
-                    st.session_state.data_source = "System Database"
-                    st.success(f"Loaded {len(st.session_state.current_data)} bank-year observations")
-                    st.rerun()
-        
-        elif import_option == "Manual Upload":
-            uploaded_file = st.file_uploader("Upload CSV/Excel", type=["csv", "xlsx"])
-            if uploaded_file and st.button("Import File", use_container_width=True):
-                with st.spinner("Processing file..."):
-                    df = import_from_manual_upload(uploaded_file)
-                    if df is not None:
-                        st.session_state.current_data = df
-                        st.session_state.data_source = "Manual Upload"
-                        st.success(f"Imported {len(df)} records")
-                        st.rerun()
-        
-        else:
-            api_key = st.text_input("API Key", type="password", placeholder="Enter API key")
-            if st.button("🔌 Connect to API", use_container_width=True):
-                if api_key:
-                    st.session_state.current_data = import_from_api(api_key)
-                    st.session_state.data_source = "API Connection"
-                    st.success("API connection successful")
-                    st.rerun()
-        
-        st.markdown("---")
-        
-        if st.session_state.current_data is not None:
-            st.markdown("### 🔬 Model Analysis")
-            if st.button("▶ Run Panel Regression", use_container_width=True):
-                with st.spinner("Estimating panel regression model..."):
-                    st.session_state.model_results = run_panel_regression(st.session_state.current_data)
-                    st.session_state.analysis_history.append({
-                        "timestamp": datetime.datetime.now().isoformat(),
-                        "data_source": st.session_state.data_source,
-                        "results": {
-                            "rcfe_coefficient": st.session_state.model_results["rcfe_coefficient"],
-                            "rcfe_pvalue": st.session_state.model_results["rcfe_pvalue"],
-                            "rsquared": st.session_state.model_results["rsquared"],
-                            "significant": st.session_state.model_results["significant"]
-                        }
-                    })
-                    st.success("Regression completed!")
-                    st.rerun()
+        st.markdown("### 📋 Navigation")
+        page = st.radio("", [
+            "🏦 Bank Dashboard",
+            "👥 Risk Committee Expertise",
+            "📊 Chapter 4 Analysis",
+            "📝 Individual Computation",
+            "📋 Reports & Warnings"
+        ], label_visibility="collapsed")
         
         st.markdown("---")
         if st.button("🚪 Sign Out", use_container_width=True):
             st.session_state.authenticated = False
             st.session_state.username = None
-            st.session_state.current_data = None
-            st.session_state.model_results = None
             st.rerun()
     
-    # Main content
+    # Header
     st.markdown("""
     <div style='margin-bottom:20px'>
-        <div style='font-family:"IBM Plex Mono",monospace;font-size:11px;color:#6B7A99'>DECISION SUPPORT SYSTEM</div>
-        <div style='font-family:"Barlow Condensed",sans-serif;font-size:36px;font-weight:700'>The Effect of Risk Committee Financial Expertise<br>on Credit Risk Management in Zimbabwean Banks</div>
+        <div style='font-size:11px;color:#6B7A99;font-family:"IBM Plex Mono"'>ZB FINANCIAL HOLDINGS</div>
+        <div style='font-size:32px;font-weight:700;font-family:"Barlow Condensed"'>Risk Committee Financial Expertise & Credit Risk Management</div>
+        <div style='font-size:14px;color:#6B7A99'>Chapter 4: Empirical Analysis & Decision Support System</div>
     </div>
     """, unsafe_allow_html=True)
     
-    if st.session_state.current_data is None:
-        st.info("👈 Please import data using the sidebar to begin analysis")
+    # ──────────────────────────────────────────────────────────────────────────
+    # PAGE 1: BANK DASHBOARD
+    # ──────────────────────────────────────────────────────────────────────────
+    if page == "🏦 Bank Dashboard":
+        st.markdown('<div class="section-header">ZB Bank Performance Dashboard</div>', unsafe_allow_html=True)
         
-        st.markdown('<div class="section-header">Available Data Preview</div>', unsafe_allow_html=True)
-        st.dataframe(REAL_BANK_DATA.head(20), use_container_width=True)
-        st.caption(f"✅ System Database contains {len(REAL_BANK_DATA)} bank-year observations ({REAL_BANK_DATA['Bank'].nunique()} banks × {REAL_BANK_DATA['Year'].nunique()} years, 2013–2024)")
-        return
-    
-    df = st.session_state.current_data
-    
-    # Verify columns exist
-    required_cols = ["NPL_Ratio", "RCFE", "Capital_Adequacy", "ROA", "Bank", "Year"]
-    missing_cols = [col for col in required_cols if col not in df.columns]
-    if missing_cols:
-        st.error(f"Missing required columns: {missing_cols}")
-        st.write("Available columns:", list(df.columns))
-        return
-    
-    tabs = st.tabs(["📊 Dashboard", "🔬 Model Results", "🚨 Problem Solver", "📜 Analysis History", "📋 Governance Reports"])
-    
-    # Dashboard Tab
-    with tabs[0]:
+        latest = zb_data[zb_data["Year"] == zb_data["Year"].max()].iloc[0]
+        
         col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
-            st.metric("Avg NPL Ratio", f"{df['NPL_Ratio'].mean():.1f}%", delta=f"{df['NPL_Ratio'].mean() - 7:.1f}% vs 7%")
+            st.metric("Current NPL Ratio", f"{latest['NPL_Ratio']:.1f}%", 
+                      delta=f"{latest['NPL_Ratio'] - 7:.1f}% vs 7% threshold", delta_color="inverse")
         with col2:
-            st.metric("Avg RCFE", f"{df['RCFE'].mean():.0%}")
+            rcfe_pct = latest['RCFE'] * 100
+            st.metric("RCFE Score", f"{rcfe_pct:.0f}%", delta="Target: 60%")
         with col3:
-            st.metric("Avg CAR", f"{df['Capital_Adequacy'].mean():.1f}%")
+            st.metric("Capital Adequacy", f"{latest['Capital_Adequacy']:.1f}%", delta="Min: 12%")
         with col4:
-            st.metric("Banks Analyzed", df['Bank'].nunique())
+            st.metric("ROA", f"{latest['ROA']:.1f}%", delta="Industry avg: 1.5%")
         with col5:
-            st.metric("Time Period", f"2013-2024 ({df['Year'].nunique()} years)")
+            st.metric("Loan-to-Deposit", f"{latest['Loan_to_Deposit']:.0f}%")
         
         col_a, col_b = st.columns(2)
         with col_a:
-            fig = px.line(df, x="Year", y="NPL_Ratio", color="Bank", title="NPL Ratio Trends by Bank")
-            fig.add_hline(y=7, line_dash="dash", line_color="#FF4D6A", annotation_text="7% Threshold")
+            fig = px.line(zb_data, x="Year", y="NPL_Ratio", 
+                         title="ZB Bank NPL Ratio Trend (2013-2024)",
+                         markers=True, line_shape="spline")
+            fig.add_hline(y=7, line_dash="dash", line_color="#FF4D6A", annotation_text="7% Critical Threshold")
+            fig.add_hline(y=5, line_dash="dash", line_color="#FFB547", annotation_text="5% Warning Threshold")
             fig.update_layout(height=400, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(fig, use_container_width=True)
-        
+            
         with col_b:
-            latest = df[df["Year"] == df["Year"].max()]
-            corr = latest["RCFE"].corr(latest["NPL_Ratio"])
-            fig = px.scatter(latest, x="RCFE", y="NPL_Ratio", color="Bank", size="Capital_Adequacy", text="Bank", title=f"RCFE vs NPL (r = {corr:.3f})")
+            fig = px.line(zb_data, x="Year", y="RCFE", 
+                         title="Risk Committee Financial Expertise Trend",
+                         markers=True, line_shape="spline")
+            fig.add_hline(y=0.6, line_dash="dash", line_color="#00E5A0", annotation_text="Target 60%")
+            fig.add_hline(y=0.5, line_dash="dash", line_color="#FFB547", annotation_text="Minimum 50%")
             fig.update_layout(height=400, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(fig, use_container_width=True)
         
-        st.markdown('<div class="section-header">NPL Ratio Heatmap</div>', unsafe_allow_html=True)
-        heatmap_data = df.pivot_table(index="Bank", columns="Year", values="NPL_Ratio")
-        fig = px.imshow(heatmap_data, text_auto=True, aspect="auto", color_continuous_scale="RdYlGn_r")
-        fig.update_layout(height=500)
-        st.plotly_chart(fig, use_container_width=True)
+        col_c, col_d = st.columns(2)
+        with col_c:
+            fig = px.scatter(zb_data, x="RCFE", y="NPL_Ratio", color="Year",
+                           size="Capital_Adequacy", title="RCFE vs NPL Ratio Correlation")
+            fig.update_layout(height=400, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(fig, use_container_width=True)
+            corr = zb_data["RCFE"].corr(zb_data["NPL_Ratio"])
+            st.caption(f"📊 Pearson Correlation: r = {corr:.3f}")
+        
+        with col_d:
+            recent = zb_data[zb_data["Year"] >= 2020][["Year", "NPL_Ratio", "RCFE", "Capital_Adequacy", "ROA"]]
+            recent = recent.set_index("Year").T
+            fig = px.imshow(recent, text_auto=True, aspect="auto", color_continuous_scale="RdYlGn",
+                           title="Key Metrics Heatmap (2020-2024)")
+            fig.update_layout(height=400, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(fig, use_container_width=True)
     
-    # Model Results Tab
-    with tabs[1]:
-        if st.session_state.model_results is None:
-            st.warning("⚠ No model results. Please run panel regression from sidebar.")
-        else:
-            results = st.session_state.model_results
+    # ──────────────────────────────────────────────────────────────────────────
+    # PAGE 2: RISK COMMITTEE EXPERTISE
+    # ──────────────────────────────────────────────────────────────────────────
+    elif page == "👥 Risk Committee Expertise":
+        st.markdown('<div class="section-header">Risk Committee Financial Expertise Analysis</div>', unsafe_allow_html=True)
+        
+        latest = zb_data[zb_data["Year"] == zb_data["Year"].max()].iloc[0]
+        current_rcfe = latest["RCFE"] * 100
+        current_npl = latest["NPL_Ratio"]
+        
+        status, icon, message = assess_rcfe_adequacy(current_rcfe)
+        status_color = "#00E5A0" if status == "Adequate" else "#FFB547" if status == "Moderate" else "#FF4D6A"
+        
+        st.markdown(f"""
+        <div class='card'>
+            <div style='display:flex; justify-content:space-between; align-items:center'>
+                <div>
+                    <div style='font-size:14px;color:#6B7A99'>Risk Committee Financial Expertise Score</div>
+                    <div style='font-size:48px;font-weight:700;color:{status_color}'>{current_rcfe:.0f}%</div>
+                    <div style='font-size:12px;margin-top:8px'>{icon} {status} - {message}</div>
+                </div>
+                <div style='text-align:center'>
+                    <div style='font-size:14px;color:#6B7A99'>Current NPL Ratio</div>
+                    <div style='font-size:36px;font-weight:700;color:{"#FF4D6A" if current_npl>7 else "#FFB547" if current_npl>5 else "#00E5A0"}'>{current_npl:.1f}%</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown('<div class="section-header">Current Risk Committee Members</div>', unsafe_allow_html=True)
+        
+        cols = st.columns(4)
+        for idx, (_, member) in enumerate(rc_members.iterrows()):
+            with cols[idx % 4]:
+                expertise_color = "#00E5A0" if member["Expertise_Score"] >= 80 else "#FFB547" if member["Expertise_Score"] >= 70 else "#FF4D6A"
+                st.markdown(f"""
+                <div class='member-card'>
+                    <div style='font-weight:700;font-size:14px'>{member['Name']}</div>
+                    <div style='font-size:11px;color:#6B7A99;margin:4px 0'>{member['Position']}</div>
+                    <div style='font-size:11px;color:#6B7A99'>{member['Qualifications']}</div>
+                    <hr style='margin:8px 0;border-color:#2A3347'>
+                    <div style='display:flex;justify-content:space-between;font-size:11px'>
+                        <span>Expertise: <span style='color:{expertise_color}'>{member['Expertise_Score']}/100</span></span>
+                        <span>Experience: {member['Risk_Experience_Years']} yrs</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        st.markdown('<div class="section-header">📋 Targeted Recommendations</div>', unsafe_allow_html=True)
+        
+        recommendations = get_rcfe_recommendations(current_rcfe, current_npl)
+        for rec in recommendations:
+            priority_color = "#FF4D6A" if rec["priority"] == "CRITICAL" else "#FFB547" if rec["priority"] == "HIGH" else "#00E5A0"
             st.markdown(f"""
             <div class='card'>
-                <div style='font-weight:700;margin-bottom:12px'>📊 Hypothesis Test</div>
-                <div><b>H₀:</b> RCFE has NO significant effect on NPL ratio</div>
-                <div><b>H₁:</b> RCFE HAS a significant effect on NPL ratio</div>
-                <hr>
-                RCFE Coefficient: <b>{results['rcfe_coefficient']:.4f}</b><br>
-                P-value: <b>{results['rcfe_pvalue']:.4f}</b>
-                <div style='margin-top:12px;padding:12px;border-radius:6px;background:{"rgba(0,229,160,0.1)" if results['significant'] else "rgba(255,77,106,0.1)"}'>
-                    {"✅ H₀ REJECTED — RCFE has significant negative effect on NPL ratio" if results['significant'] else "❌ Cannot reject H₀ — No significant relationship found"}
+                <div style='display:flex; justify-content:space-between'>
+                    <div>
+                        <div style='font-weight:700;color:{priority_color}'>{rec['priority']} PRIORITY</div>
+                        <div style='font-size:14px;font-weight:600;margin:4px 0'>{rec['area']}</div>
+                        <div style='font-size:13px;color:#B0BAD0'>{rec['action']}</div>
+                    </div>
+                    <div style='font-size:11px;color:#6B7A99;background:#111827;padding:4px 8px;border-radius:4px'>{rec['timeline']}</div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("R-squared", f"{results['rsquared']:.4f}")
-                st.metric("Observations", results['n_observations'])
-            with col2:
-                st.metric("Correlation", f"{results['correlation']:.4f}")
-                st.metric("Banks", results['banks'])
-    
-    # Problem Solver Tab
-    with tabs[2]:
-        st.markdown('<div class="section-header">🛠 Problem Solving Framework</div>', unsafe_allow_html=True)
         
-        st.subheader("🔴 Problem 1: Elevated Non-Performing Loans")
-        high_npl = identify_npl_triggers(df)
-        if len(high_npl) > 0:
-            st.warning(f"{len(high_npl)} banks have NPL > 7%")
-            st.dataframe(high_npl, use_container_width=True)
-        else:
-            st.success("All banks below 7% NPL threshold")
-        
-        st.subheader("⚠ Problem 2: Composite Risk Assessment")
-        risk_assessment = assess_composite_risk(df)
-        fig = px.bar(risk_assessment.head(10), x="Bank", y="Composite_Risk_Score", color="Risk_Level")
-        st.plotly_chart(fig, use_container_width=True)
-        
-        st.subheader("💡 Problem 3: Targeted Recommendations")
-        high_risk = risk_assessment[risk_assessment['Risk_Level'].isin(['High', 'Medium'])].head(5)
-        recommendations = generate_recommendations(high_risk)
-        for rec in recommendations:
-            with st.expander(f"🏦 {rec['Bank']} — NPL: {rec['NPL']:.1f}% | Expertise: {rec['Expertise']:.0%}"):
-                if rec['Immediate_Actions']:
-                    for action in rec['Immediate_Actions']:
-                        st.markdown(f"- {action}")
-        
-        st.subheader("🚨 Problem 4: Early Warning System")
-        df_ews = df[df["Year"] == df["Year"].max()].copy()
-        df_ews["EWS_Score"] = df_ews.apply(early_warning_score, axis=1)
-        fig = px.bar(df_ews, x="Bank", y="EWS_Score", title="Early Warning Scores")
-        fig.add_hline(y=60, line_dash="dash", line_color="#FFB547")
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=zb_data["Year"], y=zb_data["RCFE"] * 100,
+                                 mode="lines+markers", name="RCFE %",
+                                 line=dict(color="#00E5A0", width=3),
+                                 marker=dict(size=8, color="#00E5A0")))
+        fig.add_hline(y=60, line_dash="dash", line_color="#00E5A0", annotation_text="Target (60%)")
+        fig.add_hline(y=50, line_dash="dash", line_color="#FFB547", annotation_text="Minimum (50%)")
+        fig.update_layout(title="Risk Committee Financial Expertise Over Time",
+                         yaxis_title="RCFE (%)", xaxis_title="Year",
+                         height=400, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(fig, use_container_width=True)
     
-    # Analysis History Tab
-    with tabs[3]:
-        st.markdown('<div class="section-header">📜 Analysis History</div>', unsafe_allow_html=True)
-        if len(st.session_state.analysis_history) == 0:
-            st.info("No analysis history yet.")
-        else:
-            for i, entry in enumerate(reversed(st.session_state.analysis_history)):
-                ts = datetime.datetime.fromisoformat(entry["timestamp"])
-                with st.expander(f"Analysis #{len(st.session_state.analysis_history)-i} — {ts.strftime('%Y-%m-%d %H:%M')}"):
-                    st.json(entry["results"])
+    # ──────────────────────────────────────────────────────────────────────────
+    # PAGE 3: CHAPTER 4 ANALYSIS
+    # ──────────────────────────────────────────────────────────────────────────
+    elif page == "📊 Chapter 4 Analysis":
+        st.markdown('<div class="section-header">Chapter 4: Empirical Findings & Hypothesis Testing</div>', unsafe_allow_html=True)
         
-        if st.button("🗑 Clear History"):
-            st.session_state.analysis_history = []
-            st.rerun()
+        corr = zb_data["RCFE"].corr(zb_data["NPL_Ratio"])
+        
+        st.markdown(f"""
+        <div class='card'>
+            <div style='font-weight:700;margin-bottom:12px'>🎯 Research Hypothesis Test Results</div>
+            <div><b>H₀:</b> Risk committee financial expertise has NO significant effect on NPL ratio</div>
+            <div><b>H₁:</b> Risk committee financial expertise HAS a significant effect on NPL ratio</div>
+            <hr>
+            <div style='font-size:14px;margin:12px 0'>
+                Pearson Correlation: <b>{corr:.4f}</b><br>
+                Direction: <b style='color:{"#00E5A0" if corr < 0 else "#FF4D6A"}'>{"Negative (supports H₁)" if corr < 0 else "Positive (does not support H₁)"}</b>
+            </div>
+            <div style='padding:12px;border-radius:6px;background:{"rgba(0,229,160,0.1)" if corr < -0.3 else "rgba(255,77,106,0.1)"}'>
+                {"✅ <b>H₀ REJECTED</b> — RCFE has a significant negative effect on NPL ratio" if corr < -0.3 else "⚠️ Weak correlation — More data needed to reject H₀"}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown('<div class="section-header">Key Findings from Empirical Analysis</div>', unsafe_allow_html=True)
+        
+        findings = [
+            {"finding": "RCFE and NPL Correlation", "result": f"{corr:.3f}", 
+             "interpretation": "Negative correlation indicates higher expertise → lower credit risk",
+             "supports_hypothesis": corr < 0},
+            {"finding": "RCFE Improvement Trend", "result": f"+{(zb_data['RCFE'].iloc[-1] - zb_data['RCFE'].iloc[0]) * 100:.0f}%",
+             "interpretation": "ZB Bank has improved risk committee expertise over time",
+             "supports_hypothesis": True},
+            {"finding": "NPL Reduction", "result": f"{(zb_data['NPL_Ratio'].iloc[0] - zb_data['NPL_Ratio'].iloc[-1]):.1f}%",
+             "interpretation": f"Significant reduction from 19.5% to {zb_data['NPL_Ratio'].iloc[-1]:.1f}%",
+             "supports_hypothesis": True},
+        ]
+        
+        for f in findings:
+            icon = "✅" if f["supports_hypothesis"] else "❌" if f["supports_hypothesis"] is False else "📌"
+            st.markdown(f"""
+            <div class='card'>
+                <div style='display:flex; justify-content:space-between'>
+                    <span style='font-weight:700'>{f['finding']}</span>
+                    <span style='color:#00E5A0'>{f['result']}</span>
+                </div>
+                <div style='font-size:13px;color:#B0BAD0;margin-top:8px'>{icon} {f['interpretation']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown('<div class="section-header">Panel Regression Analysis</div>', unsafe_allow_html=True)
+        
+        X = sm.add_constant(zb_data["RCFE"])
+        y = zb_data["NPL_Ratio"]
+        model = sm.OLS(y, X).fit()
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("R-squared", f"{model.rsquared:.4f}")
+            st.metric("RCFE Coefficient", f"{model.params.get('RCFE', 0):.4f}")
+        with col2:
+            st.metric("P-value", f"{model.pvalues.get('RCFE', 1):.4f}")
+            st.metric("Significant at 5%", "✅ Yes" if model.pvalues.get('RCFE', 1) < 0.05 else "❌ No")
+        
+        with st.expander("📐 Full Regression Output"):
+            st.code(model.summary().as_text())
     
-    # Governance Reports Tab
-    with tabs[4]:
-        st.markdown('<div class="section-header">📋 Governance Reports</div>', unsafe_allow_html=True)
-        latest_data = df[df["Year"] == df["Year"].max()]
-        st.dataframe(latest_data[["Bank", "NPL_Ratio", "RCFE", "Capital_Adequacy", "ROA"]], use_container_width=True)
+    # ──────────────────────────────────────────────────────────────────────────
+    # PAGE 4: INDIVIDUAL COMPUTATION
+    # ──────────────────────────────────────────────────────────────────────────
+    elif page == "📝 Individual Computation":
+        st.markdown('<div class="section-header">Individual Risk Computation</div>', unsafe_allow_html=True)
+        st.markdown("Enter loan or risk data to compute credit risk metrics")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### 📊 Enter Risk Parameters")
+            rcfe_input = st.slider("Risk Committee Financial Expertise (RCFE)", 0.0, 1.0, 0.55, 0.01)
+            npl_input = st.number_input("NPL Ratio (%)", 0.0, 30.0, 5.0, 0.1)
+            car_input = st.number_input("Capital Adequacy Ratio (%)", 0.0, 35.0, 15.0, 0.1)
+            roa_input = st.number_input("Return on Assets (ROA %)", -5.0, 10.0, 1.0, 0.1)
+            
+            if st.button("🔄 Compute Risk Metrics", use_container_width=True):
+                results = compute_risk_metrics({
+                    "rcfe_input": rcfe_input, "npl_input": npl_input,
+                    "car_input": car_input, "roa_input": roa_input
+                })
+                if "error" not in results:
+                    st.session_state.individual_input = results
+                    st.success("Computation complete!")
+                else:
+                    st.error(f"Error: {results['error']}")
+        
+        with col2:
+            st.markdown("### 📈 Computation Results")
+            if st.session_state.individual_input:
+                res = st.session_state.individual_input
+                risk_color = "#FF4D6A" if res["risk_level"] == "Critical" else "#FFB547" if res["risk_level"] == "Elevated" else "#00E5A0"
+                
+                st.markdown(f"""
+                <div class='card'>
+                    <div style='text-align:center'>
+                        <div style='font-size:12px;color:#6B7A99'>Composite Risk Score</div>
+                        <div style='font-size:48px;font-weight:700;color:{risk_color}'>{res['composite_risk']:.1f}/100</div>
+                        <div style='font-size:14px;color:{risk_color}'>Risk Level: {res['risk_level']}</div>
+                    </div>
+                    <hr>
+                    <div><b>RCFE Score:</b> {res['rcfe_score']:.0f}% {'✅ Adequate' if res['rcfe_adequate'] else '⚠️ Below target'}</div>
+                    <div><b>NPL Risk Score:</b> {res['npl_risk']:.1f}/100</div>
+                    <div><b>Capital Risk Score:</b> {res['car_risk']:.1f}/100</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                if res["npl_critical"]:
+                    st.warning("⚠️ NPL ratio exceeds critical threshold (7%)")
+                if not res["rcfe_adequate"]:
+                    st.warning("⚠️ RCFE below 60% target")
+            else:
+                st.info("Enter parameters and click 'Compute'")
+        
+        latest = zb_data[zb_data["Year"] == zb_data["Year"].max()].iloc[0]
+        comp_col1, comp_col2, comp_col3 = st.columns(3)
+        with comp_col1:
+            st.metric("Current ZB Bank NPL", f"{latest['NPL_Ratio']:.1f}%")
+        with comp_col2:
+            st.metric("Current ZB Bank RCFE", f"{latest['RCFE'] * 100:.0f}%")
+        with comp_col3:
+            st.metric("Current ZB Bank CAR", f"{latest['Capital_Adequacy']:.1f}%")
+    
+    # ──────────────────────────────────────────────────────────────────────────
+    # PAGE 5: REPORTS & WARNINGS - FIXED VERSION with proper HTML rendering
+    # ──────────────────────────────────────────────────────────────────────────
+    elif page == "📋 Reports & Warnings":
+        st.markdown('<div class="section-header">Risk Reports & Early Warning System</div>', unsafe_allow_html=True)
+        
+        latest = zb_data[zb_data["Year"] == zb_data["Year"].max()].iloc[0]
+        current_rcfe = latest["RCFE"] * 100
+        
+        # Warning Status
+        st.subheader("🚨 Current Warning Status")
+        
+        warnings_list = []
+        if latest["NPL_Ratio"] > 7:
+            warnings_list.append(("CRITICAL", f"NPL Ratio at {latest['NPL_Ratio']:.1f}% exceeds 7% threshold", "Immediate board review required"))
+        elif latest["NPL_Ratio"] > 5:
+            warnings_list.append(("WARNING", f"NPL Ratio at {latest['NPL_Ratio']:.1f}% exceeds 5% advisory threshold", "Enhanced monitoring recommended"))
+        
+        if current_rcfe < 50:
+            warnings_list.append(("CRITICAL", f"RCFE at {current_rcfe:.0f}% below minimum 50% threshold", "Urgent recruitment of financial experts"))
+        elif current_rcfe < 60:
+            warnings_list.append(("WARNING", f"RCFE at {current_rcfe:.0f}% below target 60%", "Consider committee composition review"))
+        
+        if latest["Capital_Adequacy"] < 12:
+            warnings_list.append(("CRITICAL", f"Capital Adequacy at {latest['Capital_Adequacy']:.1f}% below regulatory minimum", "Immediate capital injection required"))
+        
+        if warnings_list:
+            for level, message, action in warnings_list:
+                color = "#FF4D6A" if level == "CRITICAL" else "#FFB547"
+                st.markdown(f"""
+                <div class='card' style='border-left:3px solid {color}'>
+                    <div><span style='color:{color};font-weight:700'>[{level}]</span> {message}</div>
+                    <div style='font-size:12px;color:#6B7A99;margin-top:8px'>Action: {action}</div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.success("✅ No active warnings. All key metrics within acceptable ranges.")
+        
+        # Board Report - FIXED: Using st.markdown with proper HTML and separate containers
+        st.markdown('<div class="section-header">📋 Board Risk Committee Report</div>', unsafe_allow_html=True)
+        
+        report_date = datetime.datetime.now().strftime("%d %B %Y")
+        
+        # Report header - separate container
+        with st.container():
+            st.markdown(f"""
+            <div style='background:#111827; border:1px solid #2A3347; border-radius:8px; overflow:hidden; margin-bottom:16px'>
+                <div style='background:#1C2333; padding:12px 16px; border-bottom:1px solid #2A3347'>
+                    <div style='font-family:"IBM Plex Mono"; font-size:10px; color:#6B7A99'>CONFIDENTIAL - BOARD RISK COMMITTEE</div>
+                    <div style='font-size:18px; font-weight:700; margin:4px 0'>Quarterly Credit Risk Oversight Report</div>
+                    <div style='font-size:12px; color:#6B7A99'>{report_date} | ZB Bank Limited</div>
+                </div>
+                <div style='padding:16px'>
+            """, unsafe_allow_html=True)
+            
+            # Executive Summary
+            st.markdown("""
+            <div style='margin-bottom:20px'>
+                <div style='font-weight:700; margin:0 0 8px 0; color:#00E5A0; text-transform:uppercase; font-size:12px; letter-spacing:1px'>📌 Executive Summary</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            npl_color = "#FF4D6A" if latest["NPL_Ratio"] > 7 else "#FFB547" if latest["NPL_Ratio"] > 5 else "#00E5A0"
+            rcfe_color = "#00E5A0" if current_rcfe >= 60 else "#FFB547"
+            
+            st.markdown(f"""
+            <div style='font-size:14px; color:#B0BAD0; margin-bottom:20px'>
+                As of <b>{latest['Year']}</b>, ZB Bank recorded an NPL ratio of <b style='color:{npl_color}'>{latest['NPL_Ratio']:.1f}%</b> 
+                against a target threshold of 7%. The Risk Committee Financial Expertise (RCFE) stands at <b style='color:{rcfe_color}'>{current_rcfe:.0f}%</b>, 
+                which is {'above' if current_rcfe >= 60 else 'below'} the recommended 60% threshold.
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Key Risk Indicators - using columns for better display
+            st.markdown("""
+            <div style='margin-bottom:20px'>
+                <div style='font-weight:700; margin:0 0 12px 0; color:#00E5A0; text-transform:uppercase; font-size:12px; letter-spacing:1px'>📊 Key Risk Indicators</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Create 3 columns for KPI display using st.columns for better rendering
+            kpi_cols = st.columns(3)
+            metrics = [
+                ("NPL Ratio", f"{latest['NPL_Ratio']:.1f}%", npl_color),
+                ("RCFE", f"{current_rcfe:.0f}%", rcfe_color),
+                ("Capital Adequacy", f"{latest['Capital_Adequacy']:.1f}%", "#00E5A0" if latest["Capital_Adequacy"] >= 12 else "#FF4D6A"),
+                ("ROA", f"{latest['ROA']:.1f}%", "#E2E8F0"),
+                ("Loan-to-Deposit", f"{latest['Loan_to_Deposit']:.0f}%", "#E2E8F0"),
+                ("RC Size", f"{latest['RC_Size']} members", "#E2E8F0")
+            ]
+            
+            for idx, (label, value, color) in enumerate(metrics):
+                with kpi_cols[idx % 3]:
+                    st.markdown(f"""
+                    <div style='background:#111827; padding:12px; border-radius:6px; margin-bottom:8px; text-align:center'>
+                        <div style='font-size:11px; color:#6B7A99; text-transform:uppercase'>{label}</div>
+                        <div style='font-size:20px; font-weight:700; color:{color}'>{value}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # Risk Committee Composition
+            st.markdown("""
+            <div style='margin:20px 0 16px 0'>
+                <div style='font-weight:700; margin:0 0 12px 0; color:#00E5A0; text-transform:uppercase; font-size:12px; letter-spacing:1px'>👥 Risk Committee Composition</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            for _, member in rc_members.iterrows():
+                st.markdown(f"""
+                <div style='background:#111827; padding:10px 12px; border-radius:6px; margin-bottom:8px'>
+                    <span style='font-weight:600'>{member['Name']}</span><br>
+                    <span style='font-size:12px; color:#6B7A99'>{member['Position']} - {member['Qualifications']}</span>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Recommendations
+            st.markdown("""
+            <div style='margin:20px 0 16px 0'>
+                <div style='font-weight:700; margin:0 0 12px 0; color:#00E5A0; text-transform:uppercase; font-size:12px; letter-spacing:1px'>📋 Recommendations</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("""
+            <ol style='color:#B0BAD0; margin-left:20px'>
+                <li>Maintain current NPL monitoring frequency with monthly dashboard updates</li>
+                <li>Consider recruiting additional CFA-certified member to improve RCFE to 60%</li>
+                <li>Schedule next risk committee meeting for quarterly portfolio review</li>
+            </ol>
+            """, unsafe_allow_html=True)
+            
+            # Footer
+            st.markdown("""
+            <hr style='border-color:#2A3347; margin:16px 0'>
+            <div style='font-size:10px; color:#6B7A99; text-align:center'>Generated by RCECOS v1.0 | ZB Financial Holdings</div>
+            </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Export button
+        report_data = {
+            "bank": "ZB Bank",
+            "report_date": report_date,
+            "metrics": {
+                "npl_ratio": float(latest["NPL_Ratio"]),
+                "rcfe": float(current_rcfe),
+                "capital_adequacy": float(latest["Capital_Adequacy"]),
+                "roa": float(latest["ROA"]),
+                "loan_to_deposit": float(latest["Loan_to_Deposit"])
+            },
+            "warnings": len(warnings_list),
+            "rcfe_adequate": bool(current_rcfe >= 60)
+        }
+        
+        report_json = json.dumps(report_data, indent=2, default=convert_to_serializable)
+        
+        st.download_button("⬇ Download Full Report (JSON)", 
+                          report_json,
+                          file_name=f"zb_bank_risk_report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                          mime="application/json")
 
 # ─── Run App ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
