@@ -266,7 +266,7 @@ def show_login():
         <div style='text-align:center;margin-bottom:32px'>
             <div style='font-size:48px;font-weight:700;color:#00E5A0'>ZB Bank</div>
             <div style='font-size:14px;color:#6B7A99'>Risk Committee Expertise & Credit Risk Oversight System</div>
-            <div style='font-size:12px;color:#6B7A99;margin-top:8px'>Demo: admin / admin123</div>
+            
         </div>
         """, unsafe_allow_html=True)
         
@@ -626,7 +626,7 @@ def main_app():
             a1.metric("🔴 Critical Alerts", str(n_crit))
             a2.metric("🟠 Warnings", str(n_warn))
             a3.metric("🟡 Cautions", str(n_caut))
-            st.dataframe(ew_alert_df, use_container_width=True, hide_index=True)
+            # st.dataframe(ew_alert_df, use_container_width=True, hide_index=True)
         else:
             st.success("✅ No alerts triggered under current thresholds.")
 
