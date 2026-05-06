@@ -552,57 +552,114 @@ def main_app():
     # PRIORITY 5: EARLY WARNING INDICATOR
     # ──────────────────────────────────────────────────────────────────────────
     elif page == "🚨 5. Early Warning Indicator":
-        st.markdown('<div class="section-header">🚨 Early Warning Indicator System</div>', unsafe_allow_html=True)
-        
-        def calculate_ews(npl, rcfe, car, roa):
-            score = 0
-            if npl > 7: score += 40
-            elif npl > 5: score += 20
-            if rcfe < 50: score += 30
-            elif rcfe < 60: score += 15
-            if car < 12: score += 20
-            elif car < 15: score += 10
-            if roa < 1: score += 10
-            
-            if score >= 60: level, color = "🔴 CRITICAL", "#FF4D6A"
-            elif score >= 35: level, color = "🟠 ELEVATED", "#FFB547"
-            elif score >= 15: level, color = "🟡 MODERATE", "#0091FF"
-            else: level, color = "🟢 LOW", "#00E5A0"
-            return {"score": score, "level": level, "color": color}
-        
-        ews = calculate_ews(latest["NPL_Ratio"], latest["RCFE"], latest["Capital_Adequacy"], latest["ROA"])
-        
-        st.markdown(f"""
-        <div class='card' style='text-align:center; border-left: 4px solid {ews["color"]}'>
-            <div style='font-size:14px; color:#6B7A99'>CURRENT EARLY WARNING STATUS</div>
-            <div style='font-size:48px; font-weight:700; color:{ews["color"]}'>{ews["level"]}</div>
-            <div style='font-size:16px'>Overall Risk Score: {ews["score"]}/100</div>
+        st.markdown('<div class="section-header">Early Warning Mechanism</div>', unsafe_allow_html=True)
+        st.markdown("""
+        <div style='font-family:"IBM Plex Mono",monospace;font-size:11px;color:#6B7A99;margin-bottom:16px'>
+        Automated flags based on configurable thresholds — alerts board when indicators breach risk appetite limits
         </div>
         """, unsafe_allow_html=True)
-        
-        # Component breakdown
-        st.markdown("### 📊 EWS Component Breakdown")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            npl_score = 40 if latest["NPL_Ratio"] > 7 else 20 if latest["NPL_Ratio"] > 5 else 0
-            st.metric("NPL Component", f"{npl_score}/40", delta=f"NPL: {latest['NPL_Ratio']}%")
-        with col2:
-            rcfe_score = 30 if latest["RCFE"] < 50 else 15 if latest["RCFE"] < 60 else 0
-            st.metric("RCFE Component", f"{rcfe_score}/30", delta=f"RCFE: {latest['RCFE']}%")
-        with col3:
-            car_score = 20 if latest["Capital_Adequacy"] < 12 else 10 if latest["Capital_Adequacy"] < 15 else 0
-            st.metric("Capital Component", f"{car_score}/20", delta=f"CAR: {latest['Capital_Adequacy']}%")
-        with col4:
-            roa_score = 10 if latest["ROA"] < 1 else 0
-            st.metric("ROA Component", f"{roa_score}/10", delta=f"ROA: {latest['ROA']}%")
-        
-        # EWS Trend
-        df["EWS_Score"] = df.apply(lambda row: calculate_ews(row["NPL_Ratio"], row["RCFE"], row["Capital_Adequacy"], row["ROA"])["score"], axis=1)
-        fig = px.area(df, x="Year", y="EWS_Score", title="Early Warning System Trend (Lower is Better)", color_discrete_sequence=["#00E5A0"])
-        fig.add_hline(y=60, line_dash="dash", line_color="#FF4D6A", annotation_text="Critical Zone")
-        fig.add_hline(y=35, line_dash="dash", line_color="#FFB547", annotation_text="Elevated Zone")
-        fig.update_layout(height=400, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-        st.plotly_chart(fig, use_container_width=True)
+
+        # Threshold config
+        with st.expander("⚙️  Configure Thresholds"):
+            tc1, tc2, tc3 = st.columns(3)
+            with tc1:
+                t_npl = st.slider("NPL Ratio Warning (%)", 1.0, 20.0, thresholds["npl_warn"], 0.5, key="t_npl")
+                t_npl_crit = st.slider("NPL Ratio Critical (%)", t_npl, 25.0, min(t_npl + 3, 25.0), 0.5)
+            with tc2:
+                t_overdue = st.slider("Overdue Facilities Warning (%)", 1.0, 20.0, thresholds["overdue"], 0.5)
+                t_prov = st.slider("Min Provisioning Cover (%)", 20.0, 80.0, thresholds["provision"], 5.0)
+            with tc3:
+                t_exp = st.slider("Min Expertise Score", 20, 90, thresholds["expertise"], 5)
+                t_cap = st.slider("Min Capital Adequacy (%)", 5.0, 20.0, thresholds["capital"], 0.5)
+
+        # Build multi-bank snapshot inline (no dependency on module-level bank_df)
+        _EW_PROFILES = {
+            "CBZ Bank":         (78,  3.2,  16.5, 78.0, 3.1),
+            "ZB Bank":          (72,  3.9,  27.5, 85.0, 1.8),
+            "Steward Bank":     (65,  6.1,  18.5, 70.0, 1.1),
+            "NMB Bank":         (60,  7.4,  15.2, 62.0, 0.9),
+            "BancABC":          (52,  9.2,  13.4, 57.0, 0.7),
+            "Ecobank Zimbabwe": (45, 11.0,  12.1, 51.0, 0.5),
+            "FBC Bank":         (40, 12.8,  11.5, 44.0, 0.3),
+        }
+        latest_data = pd.DataFrame([
+            {"Bank": bank, "Avg_Expertise": v[0], "NPL_Ratio": v[1],
+             "Capital_Adequacy": v[2], "Provisioning_Coverage": v[3],
+             "Overdue_Facilities_pct": v[4]}
+            for bank, v in _EW_PROFILES.items()
+        ])
+
+        ew_alerts = []
+        for _, row in latest_data.iterrows():
+            b = row["Bank"]
+            if row["NPL_Ratio"] >= t_npl_crit:
+                ew_alerts.append({"Severity": "🔴 CRITICAL", "Bank": b, "Indicator": "NPL Ratio",
+                                "Value": f"{row['NPL_Ratio']:.1f}%", "Threshold": f"{t_npl_crit}%",
+                                "Action": "Immediate board review + provisioning increase"})
+            elif row["NPL_Ratio"] >= t_npl:
+                ew_alerts.append({"Severity": "🟠 WARNING", "Bank": b, "Indicator": "NPL Ratio",
+                                "Value": f"{row['NPL_Ratio']:.1f}%", "Threshold": f"{t_npl}%",
+                                "Action": "Enhanced monitoring + credit committee review"})
+            if row["Overdue_Facilities_pct"] >= t_overdue:
+                ew_alerts.append({"Severity": "🟡 CAUTION", "Bank": b, "Indicator": "Overdue Facilities",
+                                "Value": f"{row['Overdue_Facilities_pct']:.1f}%", "Threshold": f"{t_overdue}%",
+                                "Action": "Review collections strategy"})
+            if row["Provisioning_Coverage"] < t_prov:
+                ew_alerts.append({"Severity": "🟡 CAUTION", "Bank": b, "Indicator": "Provisioning Coverage",
+                                "Value": f"{row['Provisioning_Coverage']:.1f}%", "Threshold": f"< {t_prov}%",
+                                "Action": "Increase loan loss reserves"})
+            if row["Avg_Expertise"] < t_exp:
+                ew_alerts.append({"Severity": "🟠 WARNING", "Bank": b, "Indicator": "Committee Expertise",
+                                "Value": f"{row['Avg_Expertise']:.0f}/100", "Threshold": f"< {t_exp}",
+                                "Action": "Board appointment review — recruit financial expert"})
+            if row["Capital_Adequacy"] < t_cap:
+                ew_alerts.append({"Severity": "🔴 CRITICAL", "Bank": b, "Indicator": "Capital Adequacy",
+                                "Value": f"{row['Capital_Adequacy']:.1f}%", "Threshold": f"< {t_cap}%",
+                                "Action": "Urgent capital plan — notify RBZ"})
+
+        if ew_alerts:
+            ew_alert_df = pd.DataFrame(ew_alerts)
+            n_crit = (ew_alert_df["Severity"].str.contains("CRITICAL")).sum()
+            n_warn = (ew_alert_df["Severity"].str.contains("WARNING")).sum()
+            n_caut = (ew_alert_df["Severity"].str.contains("CAUTION")).sum()
+            a1, a2, a3 = st.columns(3)
+            a1.metric("🔴 Critical Alerts", str(n_crit))
+            a2.metric("🟠 Warnings", str(n_warn))
+            a3.metric("🟡 Cautions", str(n_caut))
+            st.dataframe(ew_alert_df, use_container_width=True, hide_index=True)
+        else:
+            st.success("✅ No alerts triggered under current thresholds.")
+
+        # NPL Trajectory chart
+        st.markdown('<div class="section-header">NPL Trajectory & Risk Zones</div>', unsafe_allow_html=True)
+        _EW_BANKS = ["CBZ Bank", "ZB Bank", "Steward Bank", "NMB Bank", "BancABC", "Ecobank Zimbabwe", "FBC Bank"]
+        b_sel = st.selectbox("Select Bank for Trajectory", _EW_BANKS, key="ew_bank")
+        # Build per-bank NPL trajectory from the same profiles with year variance
+        _rng2 = np.random.default_rng(99)
+        _EW_TREND = {
+            "CBZ Bank": (3.2, -0.10), "ZB Bank": (4.5, -0.08), "Steward Bank": (6.0, 0.05),
+            "NMB Bank": (7.2, 0.10),  "BancABC": (8.5, 0.18),  "Ecobank Zimbabwe": (10.0, 0.25),
+            "FBC Bank": (11.5, 0.30),
+        }
+        _base, _trend = _EW_TREND[b_sel]
+        _traj_years = list(range(2018, 2025))
+        b_data = pd.DataFrame({
+            "Year": _traj_years,
+            "NPL_Ratio": [round(max(1.0, _base + _trend * (y - 2018) + _rng2.normal(0, 0.4)), 2) for y in _traj_years]
+        })
+        fig10 = go.Figure()
+        fig10.add_hrect(y0=0, y1=t_npl, fillcolor="rgba(0,229,160,0.06)", line_width=0, annotation_text="Safe Zone")
+        fig10.add_hrect(y0=t_npl, y1=t_npl_crit, fillcolor="rgba(255,181,71,0.08)", line_width=0, annotation_text="Warning Zone")
+        fig10.add_hrect(y0=t_npl_crit, y1=25, fillcolor="rgba(255,77,106,0.08)", line_width=0, annotation_text="Critical Zone")
+        fig10.add_trace(go.Scatter(x=b_data["Year"], y=b_data["NPL_Ratio"],
+                                    mode="lines+markers+text", name="NPL Ratio",
+                                    line=dict(color="#00E5A0", width=3),
+                                    marker=dict(size=8, color="#00E5A0"),
+                                    text=b_data["NPL_Ratio"].apply(lambda x: f"{x:.1f}%"),
+                                    textposition="top center",
+                                    textfont=dict(family="IBM Plex Mono", size=10)))
+        fig10.update_layout(title=f"NPL Trajectory — {b_sel}", yaxis_title="NPL Ratio (%)", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font_family="IBM Plex Mono", font_color="#E2E8F0")
+        st.plotly_chart(fig10, use_container_width=True)
     
     # ──────────────────────────────────────────────────────────────────────────
     # PRIORITY 6: REPORT (Corrective Actions) - WITH FULL REPORTING
