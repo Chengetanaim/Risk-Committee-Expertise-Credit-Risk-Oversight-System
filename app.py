@@ -609,12 +609,69 @@ def main_app():
     # ──────────────────────────────────────────────────────────────────────────
     elif page == "📋 6. Report (Corrective Actions)":
         st.markdown('<div class="section-header">📋 Board Risk Committee Reports & Corrective Actions</div>', unsafe_allow_html=True)
-        
+
+        # ══════════════════════════════════════════════════════════════════
+        # REPORT CONTROLS — bank + period selectors (from commit 42b745a)
+        # ══════════════════════════════════════════════════════════════════
+        REPORT_BANKS = ["ZB Bank", "CBZ Bank", "Steward Bank", "NMB Bank", "BancABC", "Ecobank Zimbabwe", "FBC Bank"]
+        REPORT_YEARS = list(range(2013, 2025))
+
+        # Synthetic per-bank data for reporting (expertise drives outcomes)
+        _BANK_PROFILES = {
+            "ZB Bank":            (72, 3.9,  1.8,  85, 27.5, 1.8, 40),
+            "CBZ Bank":           (78, 2.8,  2.1,  88, 29.0, 1.5, 38),
+            "Steward Bank":       (65, 6.1,  1.1,  70, 18.5, 2.8, 55),
+            "NMB Bank":           (60, 7.4,  0.9,  62, 15.2, 3.2, 60),
+            "BancABC":            (52, 9.2,  0.7,  57, 13.4, 4.1, 68),
+            "Ecobank Zimbabwe":   (45, 11.0, 0.5,  51, 12.1, 5.5, 74),
+            "FBC Bank":           (40, 12.8, 0.3,  44, 11.5, 6.8, 80),
+        }
+        _BANK_MEMBERS = {
+            "ZB Bank":           [("Prof. Tafadzwa Ncube","Chairperson","PhD Finance, CFA, MBA",95,True,True),
+                                   ("Mr. Charles Mutasa","Member","CFA, ACCA, MSc Banking",82,True,False),
+                                   ("Mrs. Grace Mapondera","Independent Member","CA(Z), MSc Finance, FRM",90,True,True),
+                                   ("Dr. Tendai Makoni","Observer","PhD Economics, MSc RM",78,False,False)],
+            "CBZ Bank":          [("Dr. Faith Chikwanda","Chairperson","PhD Finance, CFA",92,True,True),
+                                   ("Mr. Tawanda Moyo","Member","CFA, MSc Banking",85,True,True),
+                                   ("Ms. Rudo Sibanda","Independent Member","CA(Z), FRM",88,True,True)],
+            "Steward Bank":      [("Dr. John Muza","Chairperson","PhD Finance",75,True,True),
+                                   ("Ms. Tsitsi Hlupeko","Member","MBA Finance, ACCA",62,True,False)],
+            "NMB Bank":          [("Mr. Simba Kurasha","Chairperson","MBA Finance",58,False,True),
+                                   ("Dr. Nyarai Banda","Member","MSc Banking, CPA",63,True,False)],
+            "BancABC":           [("Mrs. Anesu Chigumira","Chairperson","MBA Finance",50,False,False),
+                                   ("Mr. Kudakwashe Dube","Member","ACCA",48,False,True)],
+            "Ecobank Zimbabwe":  [("Prof. Munyaradzi Juru","Chairperson","MBA Finance",46,False,False),
+                                   ("Ms. Tatenda Gwanetsa","Member","CPA",44,False,False)],
+            "FBC Bank":          [("Dr. Farai Makwara","Chairperson","MSc Banking",42,False,False),
+                                   ("Mr. Paidamoyo Zvimba","Member","CPA",38,False,False)],
+        }
+
+        rcol1, rcol2 = st.columns([2, 2])
+        with rcol1:
+            r_bank = st.selectbox("🏦 Bank for Report", REPORT_BANKS, key="r_bank")
+        with rcol2:
+            r_period = st.selectbox("📅 Reporting Period", [str(y) for y in reversed(REPORT_YEARS)], key="r_period")
+
+        # Build report data for selected bank/period
+        bp = _BANK_PROFILES[r_bank]
+        r_avg_exp, r_npl, r_roa, r_prov, r_cap, r_overdue, r_ldr = bp
+        # Apply small year-based variance
+        yr_offset = (int(r_period) - 2024) * 0.15
+        r_npl  = max(1.0, round(r_npl  + yr_offset, 1))
+        r_cap  = max(8.0, round(r_cap  - yr_offset * 0.5, 1))
+        r_prov = max(30,  round(r_prov - yr_offset * 2, 0))
+
+        r_members_raw = _BANK_MEMBERS[r_bank]
+        r_comm = pd.DataFrame(r_members_raw, columns=["Name","Role","Qualifications","Expertise_Score","Risk_Management_Certified","Board_Director_Experience"])
+        r_avg_exp_actual = r_comm["Expertise_Score"].mean()
+
+        st.markdown("---")
+
         # ==================== SECTION A: EARLY WARNING ALERTS ====================
         st.markdown("### 🚨 Early Warning Alerts")
-        
+
         alerts = generate_early_warnings(df, committee, thresholds)
-        
+
         if alerts:
             alert_df = pd.DataFrame(alerts)
             col1, col2, col3 = st.columns(3)
@@ -627,7 +684,7 @@ def main_app():
             st.dataframe(alert_df, use_container_width=True, hide_index=True)
         else:
             st.success("✅ No active alerts under current thresholds.")
-        
+
         # ==================== SECTION B: ADD CORRECTIVE ACTION ====================
         with st.expander("➕ Register New Corrective Action", expanded=False):
             col1, col2 = st.columns(2)
@@ -640,9 +697,9 @@ def main_app():
                 risk_area = st.selectbox("Risk Area", ["RCFE Improvement", "NPL Reduction", "Capital Adequacy", "Loan Underwriting", "Early Warning System", "Portfolio Diversification"])
                 status = st.selectbox("Status", ["Not Started", "In Progress", "Under Review", "Completed"])
                 linked_alert = st.selectbox("Linked Alert (if any)", ["None"] + [a["Indicator"] for a in alerts]) if alerts else "None"
-            
+
             description = st.text_area("Action Description", height=100)
-            
+
             if st.button("📌 Register Corrective Action", use_container_width=True):
                 st.session_state.corrective_actions.append({
                     "id": len(st.session_state.corrective_actions) + 1,
@@ -653,141 +710,166 @@ def main_app():
                 })
                 st.success("Action registered successfully!")
                 st.rerun()
-        
+
         # ==================== SECTION C: CORRECTIVE ACTIONS TRACKER ====================
         if st.session_state.corrective_actions:
             st.markdown("### 📋 Corrective Actions Tracker")
             actions_df = pd.DataFrame(st.session_state.corrective_actions)
-            
+
             def priority_icon(p):
                 return "🔴" if p == "Critical" else "🟠" if p == "High" else "🟡" if p == "Medium" else "🟢"
-            
+
             actions_df["Prio"] = actions_df["priority"].apply(priority_icon)
             st.dataframe(actions_df[["Prio", "title", "risk_area", "assigned_to", "deadline", "status"]], use_container_width=True)
-            
-            # Action summary metrics
+
             col_a, col_b, col_c, col_d = st.columns(4)
             total_actions = len(actions_df)
             completed = len(actions_df[actions_df["status"] == "Completed"])
             in_progress = len(actions_df[actions_df["status"] == "In Progress"])
             overdue = len(actions_df[(actions_df["deadline"] < datetime.date.today().strftime("%Y-%m-%d")) & (actions_df["status"] != "Completed")])
-            
+
             col_a.metric("Total Actions", total_actions)
             col_b.metric("Completed", completed, delta=f"{completed/total_actions*100:.0f}%" if total_actions > 0 else "0%")
             col_c.metric("In Progress", in_progress)
             col_d.metric("Overdue", overdue, delta="⚠️ Review required" if overdue > 0 else None, delta_color="inverse")
-        
+
         # ==================== SECTION D: BOARD RISK COMMITTEE REPORT ====================
         st.markdown("### 📄 Board Risk Committee Report")
-        
+
         report_date = datetime.datetime.now().strftime("%d %B %Y")
-        avg_exp = committee["Expertise_Score"].mean()
-        
-        # Professional Board Report
+
+        npl_color  = "#FF4D6A" if r_npl  >= thresholds["npl_warn"]  else "#00E5A0"
+        cap_color  = "#FF4D6A" if r_cap  < 12                        else "#00E5A0"
+        rcfe_color = "#FFB547" if r_avg_exp_actual < 60               else "#00E5A0"
+
         st.markdown(f"""
-        <div style='background:#111827;border:1px solid #2A3347;border-radius:8px;padding:24px 28px;margin:16px 0'>
-          <div style='font-family:"IBM Plex Mono",monospace;font-size:10px;color:#6B7A99;text-transform:uppercase;letter-spacing:.12em'>Confidential — Board Risk Committee</div>
-          <div style='font-family:"Barlow Condensed",sans-serif;font-size:26px;font-weight:700;margin:8px 0 4px'>QUARTERLY CREDIT RISK OVERSIGHT REPORT</div>
-          <div style='font-family:"IBM Plex Mono",monospace;font-size:12px;color:#00E5A0'>ZB Bank &nbsp;|&nbsp; Period: {latest['Year']} &nbsp;|&nbsp; Generated: {report_date}</div>
+        <div style='background:#111827;border:1px solid #2A3347;border-radius:8px;padding:28px 32px;margin:16px 0'>
+          <div style='font-family:"IBM Plex Mono",monospace;font-size:10px;color:#6B7A99;text-transform:uppercase;letter-spacing:.12em'>Confidential — Board Risk Committee Report</div>
+          <div style='font-family:"Barlow Condensed",sans-serif;font-size:28px;font-weight:700;margin:8px 0 4px'>CREDIT RISK OVERSIGHT REPORT</div>
+          <div style='font-family:"IBM Plex Mono",monospace;font-size:12px;color:#00E5A0'>{r_bank} &nbsp;|&nbsp; Period: {r_period} &nbsp;|&nbsp; Generated: {report_date}</div>
           <hr style='border-color:#2A3347;margin:20px 0'>
 
-          <div style='font-family:"Barlow Condensed",sans-serif;font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px'>1. Executive Summary</div>
+          <div style='font-family:"Barlow Condensed",sans-serif;font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;color:#E2E8F0'>1. Executive Summary</div>
           <div style='font-family:"Barlow",sans-serif;font-size:14px;color:#B0BAD0;line-height:1.7;margin-bottom:20px'>
-          As at <b>{latest['Year']}</b>, ZB Bank recorded a Non-Performing Loan (NPL) ratio of
-          <span style='color:{"#FF4D6A" if latest["NPL_Ratio"] >= thresholds["npl_warn"] else "#00E5A0"}'><b>{latest["NPL_Ratio"]:.1f}%</b></span>
+          As at <b>{r_period}</b>, {r_bank} recorded a Non-Performing Loan (NPL) ratio of
+          <span style='color:{npl_color}'><b>{r_npl:.1f}%</b></span>
           against a monitoring threshold of {thresholds["npl_warn"]}%. The bank's provisioning coverage stood at
-          <b>{latest["Provisioning_Coverage"]:.0f}%</b> and capital adequacy at <b>{latest["Capital_Adequacy"]:.1f}%</b>.
-          The risk committee's average financial expertise score is <b>{avg_exp:.0f}/100</b>
-          ({expertise_badge(avg_exp)}).
+          <b>{r_prov:.0f}%</b> and capital adequacy at <b>{r_cap:.1f}%</b>.
+          The risk committee's average financial expertise score is <b>{r_avg_exp_actual:.0f}/100</b>
+          ({expertise_badge(r_avg_exp_actual)}).
           </div>
 
-          <div style='font-family:"Barlow Condensed",sans-serif;font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px'>2. Key Risk Indicators</div>
+          <div style='font-family:"Barlow Condensed",sans-serif;font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;color:#E2E8F0'>2. Key Credit Risk Indicators</div>
           <div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px'>
             <div style='background:#1C2333;border:1px solid #2A3347;border-radius:6px;padding:12px'>
-              <div style='font-family:"IBM Plex Mono",monospace;font-size:9px;color:#6B7A99;text-transform:uppercase'>NPL Ratio</div>
-              <div style='font-family:"Barlow Condensed",sans-serif;font-size:22px;font-weight:700;color:{"#FF4D6A" if latest["NPL_Ratio"] >= thresholds["npl_warn"] else "#00E5A0"}'>{latest["NPL_Ratio"]:.1f}%</div>
-              <div style='font-size:10px;color:#6B7A99'>{risk_badge(latest["NPL_Ratio"])}</div>
+              <div style='font-family:"IBM Plex Mono",monospace;font-size:9px;color:#6B7A99;text-transform:uppercase;letter-spacing:.1em'>NPL Ratio</div>
+              <div style='font-family:"Barlow Condensed",sans-serif;font-size:24px;font-weight:700;color:{npl_color}'>{r_npl:.1f}%</div>
+              <div style='font-family:"IBM Plex Mono",monospace;font-size:10px;color:#6B7A99'>{risk_badge(r_npl)}</div>
             </div>
             <div style='background:#1C2333;border:1px solid #2A3347;border-radius:6px;padding:12px'>
-              <div style='font-family:"IBM Plex Mono",monospace;font-size:9px;color:#6B7A99;text-transform:uppercase'>RCFE Score</div>
-              <div style='font-family:"Barlow Condensed",sans-serif;font-size:22px;font-weight:700;color:{"#FFB547" if latest["RCFE"] < 60 else "#00E5A0"}'>{latest["RCFE"]}%</div>
-              <div style='font-size:10px;color:#6B7A99'>Target: 60%</div>
+              <div style='font-family:"IBM Plex Mono",monospace;font-size:9px;color:#6B7A99;text-transform:uppercase;letter-spacing:.1em'>Overdue Facilities</div>
+              <div style='font-family:"Barlow Condensed",sans-serif;font-size:24px;font-weight:700;color:#FFB547'>{r_overdue:.1f}%</div>
             </div>
             <div style='background:#1C2333;border:1px solid #2A3347;border-radius:6px;padding:12px'>
-              <div style='font-family:"IBM Plex Mono",monospace;font-size:9px;color:#6B7A99;text-transform:uppercase'>Capital Adequacy</div>
-              <div style='font-family:"Barlow Condensed",sans-serif;font-size:22px;font-weight:700;color:{"#FF4D6A" if latest["Capital_Adequacy"] < 12 else "#00E5A0"}'>{latest["Capital_Adequacy"]:.1f}%</div>
-              <div style='font-size:10px;color:#6B7A99'>Min: 12%</div>
+              <div style='font-family:"IBM Plex Mono",monospace;font-size:9px;color:#6B7A99;text-transform:uppercase;letter-spacing:.1em'>Provisioning Cover</div>
+              <div style='font-family:"Barlow Condensed",sans-serif;font-size:24px;font-weight:700;color:#0091FF'>{r_prov:.0f}%</div>
             </div>
             <div style='background:#1C2333;border:1px solid #2A3347;border-radius:6px;padding:12px'>
-              <div style='font-family:"IBM Plex Mono",monospace;font-size:9px;color:#6B7A99;text-transform:uppercase'>Overdue Facilities</div>
-              <div style='font-family:"Barlow Condensed",sans-serif;font-size:22px;font-weight:700;color:#FFB547'>{latest["Overdue_Facilities_pct"]:.1f}%</div>
+              <div style='font-family:"IBM Plex Mono",monospace;font-size:9px;color:#6B7A99;text-transform:uppercase;letter-spacing:.1em'>Capital Adequacy</div>
+              <div style='font-family:"Barlow Condensed",sans-serif;font-size:24px;font-weight:700;color:{cap_color}'>{r_cap:.1f}%</div>
             </div>
             <div style='background:#1C2333;border:1px solid #2A3347;border-radius:6px;padding:12px'>
-              <div style='font-family:"IBM Plex Mono",monospace;font-size:9px;color:#6B7A99;text-transform:uppercase'>Provisioning Cover</div>
-              <div style='font-family:"Barlow Condensed",sans-serif;font-size:22px;font-weight:700;color:#0091FF'>{latest["Provisioning_Coverage"]:.0f}%</div>
+              <div style='font-family:"IBM Plex Mono",monospace;font-size:9px;color:#6B7A99;text-transform:uppercase;letter-spacing:.1em'>Loan/Deposit Ratio</div>
+              <div style='font-family:"Barlow Condensed",sans-serif;font-size:24px;font-weight:700;color:#A78BFA'>{r_ldr:.0f}%</div>
             </div>
             <div style='background:#1C2333;border:1px solid #2A3347;border-radius:6px;padding:12px'>
-              <div style='font-family:"IBM Plex Mono",monospace;font-size:9px;color:#6B7A99;text-transform:uppercase'>Return on Assets</div>
-              <div style='font-family:"Barlow Condensed",sans-serif;font-size:22px;font-weight:700;color:#34D399'>{latest["ROA"]:.2f}%</div>
+              <div style='font-family:"IBM Plex Mono",monospace;font-size:9px;color:#6B7A99;text-transform:uppercase;letter-spacing:.1em'>Return on Assets</div>
+              <div style='font-family:"Barlow Condensed",sans-serif;font-size:24px;font-weight:700;color:#34D399'>{r_roa:.2f}%</div>
             </div>
           </div>
 
-          <div style='font-family:"Barlow Condensed",sans-serif;font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px'>3. Risk Committee Governance</div>
+          <div style='font-family:"Barlow Condensed",sans-serif;font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;color:#E2E8F0'>3. Risk Committee Governance</div>
           <div style='font-family:"Barlow",sans-serif;font-size:14px;color:#B0BAD0;line-height:1.7;margin-bottom:16px'>
-          The committee comprises <b>{len(committee)} members</b>.
-          Average expertise score: <b>{avg_exp:.0f}/100</b> ({expertise_badge(avg_exp)}).
-          Risk-certified members: <b>{committee["Risk_Management_Certified"].sum()}</b>.
-          Board director experienced: <b>{committee["Board_Director_Experience"].sum()}</b>.
-          </div>
-        """, unsafe_allow_html=True)
-        
-        # Committee members list
-        for _, member in committee.iterrows():
-            st.markdown(f"- **{member['Name']}** ({member['Position']}) — {member['Qualifications']}")
-        
-        st.markdown(f"""
-          <div style='margin-top:16px'>
-            <div style='font-family:"Barlow Condensed",sans-serif;font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px'>4. Corrective Actions Status</div>
-            <div style='font-family:"Barlow",sans-serif;font-size:14px;color:#B0BAD0'>
-              <b>Total Actions Registered:</b> {len(st.session_state.corrective_actions)}<br>
-              <b>Completed:</b> {len([a for a in st.session_state.corrective_actions if a['status'] == 'Completed'])}<br>
-              <b>In Progress:</b> {len([a for a in st.session_state.corrective_actions if a['status'] == 'In Progress'])}<br>
-              <b>Overdue:</b> {len([a for a in st.session_state.corrective_actions if a['deadline'] < datetime.date.today().strftime("%Y-%m-%d") and a['status'] != 'Completed'])}
-            </div>
+          The committee comprises <b>{len(r_comm)} members</b>.
+          Average expertise score: <b>{r_avg_exp_actual:.0f}/100</b> ({expertise_badge(r_avg_exp_actual)}).
+          Risk-certified members: <b>{r_comm["Risk_Management_Certified"].sum()}</b>.
+          Board director experienced: <b>{r_comm["Board_Director_Experience"].sum()}</b>.
           </div>
 
-          <div style='margin-top:20px'>
-            <div style='font-family:"Barlow Condensed",sans-serif;font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px'>5. Recommendations</div>
-            <div style='font-family:"Barlow",sans-serif;font-size:14px;color:#B0BAD0'>
-              {"⚠ <b>Immediate action required:</b> NPL ratio exceeds the monitoring threshold. The board should convene an emergency credit risk review, mandate stress testing, and strengthen provisioning." if latest["NPL_Ratio"] >= thresholds["npl_warn"] else "✅ Credit risk indicators are within acceptable bounds. The committee should maintain current monitoring frequency and review sector concentration limits at the next scheduled meeting."}
-              {"<br>📌 <b>Governance:</b> Consider recruiting additional CFA/FRM-certified members to strengthen analytical depth of the committee." if avg_exp < 60 else "<br>📌 <b>Governance:</b> Expertise composition is adequate — continue professional development programme."}
-            </div>
+          <div style='font-family:"Barlow Condensed",sans-serif;font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;color:#E2E8F0'>4. Corrective Actions Status</div>
+          <div style='font-family:"Barlow",sans-serif;font-size:14px;color:#B0BAD0;line-height:1.7;margin-bottom:16px'>
+            <b>Total Actions Registered:</b> {len(st.session_state.corrective_actions)}<br>
+            <b>Completed:</b> {len([a for a in st.session_state.corrective_actions if a['status'] == 'Completed'])}<br>
+            <b>In Progress:</b> {len([a for a in st.session_state.corrective_actions if a['status'] == 'In Progress'])}<br>
+            <b>Overdue:</b> {len([a for a in st.session_state.corrective_actions if a['deadline'] < datetime.date.today().strftime("%Y-%m-%d") and a['status'] != 'Completed'])}
+          </div>
+
+          <div style='font-family:"Barlow Condensed",sans-serif;font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;color:#E2E8F0'>5. Recommendations</div>
+          <div style='font-family:"Barlow",sans-serif;font-size:14px;color:#B0BAD0;line-height:1.7'>
+          {"⚠ <b>Immediate action required:</b> NPL ratio exceeds the critical threshold. The board should convene an emergency credit risk review, mandate stress testing, and strengthen provisioning." if r_npl >= thresholds["npl_warn"] else "✅ Credit risk indicators are within acceptable bounds. The committee should maintain current monitoring frequency and review sector concentration limits at the next scheduled meeting."}
+          {"<br>📌 <b>Governance:</b> Consider recruiting additional CFA/FRM-certified members to strengthen analytical depth of the committee." if r_avg_exp_actual < 60 else "<br>📌 <b>Governance:</b> Expertise composition is adequate — continue professional development programme."}
+          {"<br>🏦 <b>Capital:</b> Capital adequacy is below the regulatory minimum of 12% — initiate a capital restoration plan and notify RBZ immediately." if r_cap < 12 else ""}
           </div>
           <hr style='border-color:#2A3347;margin:20px 0'>
-          <div style='font-size:10px;color:#6B7A99;text-align:center'>Generated by RCECOS v1.0 | ZB Financial Holdings</div>
+          <div style='font-size:10px;color:#6B7A99;text-align:center'>Generated by RCECOS v2.0 | Zimbabwe Banking Sector Oversight</div>
         </div>
         """, unsafe_allow_html=True)
-        
-        # ==================== SECTION E: EXPORT REPORT ====================
+
+        # Committee members table for report
+        st.markdown(f"**Committee Members — {r_bank}**")
+        rep_comm = r_comm[["Name","Role","Qualifications","Expertise_Score"]].copy()
+        rep_comm.columns = ["Name","Role","Qualifications","Score"]
+        st.dataframe(rep_comm, use_container_width=True, hide_index=True)
+
+        # ==================== SECTION E: GOVERNANCE ENHANCEMENT RECOMMENDATIONS ====================
+        st.markdown('<div class="section-header">📐 Governance Enhancement Recommendations</div>', unsafe_allow_html=True)
+        recs = [
+            ("Mandatory Financial Expertise Threshold",
+             "RBZ should mandate that at least 60% of risk committee members hold CFA, FRM, CA(Z) or equivalent qualifications. Banks falling below this threshold should be subject to enhanced supervisory review.",
+             "Regulator / RBZ"),
+            ("Structured Onboarding & Continuing Professional Development",
+             "Banks should implement CPD programmes covering IFRS 9 expected credit loss, Basel III capital requirements and sector-specific credit analytics. Minimum 40 CPD hours per year for all committee members.",
+             "Bank Boards"),
+            ("Independent Risk Committee Chair",
+             "The committee chair should be an independent non-executive director with minimum 10 years' senior banking experience and no executive relationship with management.",
+             "Governance Committees"),
+            ("Quarterly Credit Risk Reporting",
+             "Boards should receive quarterly credit risk dashboards showing NPL trends, sector exposure heatmaps and provisioning adequacy, with automated early warning flags tied to RBZ thresholds.",
+             "Risk Management"),
+            ("ZAMCO Lessons Integration",
+             "Governance frameworks should embed lessons from ZAMCO's NPL resolution, ensuring early identification of distressed assets before systemic accumulation. Mandatory stress testing twice annually.",
+             "All Stakeholders"),
+        ]
+        for title, desc, owner in recs:
+            st.markdown(f"""
+            <div class='card'>
+              <div style='display:flex;justify-content:space-between;align-items:flex-start'>
+                <div style='font-family:"Barlow Condensed",sans-serif;font-size:16px;font-weight:700;color:#E2E8F0'>{title}</div>
+                <div style='font-family:"IBM Plex Mono",monospace;font-size:9px;color:#0091FF;text-transform:uppercase;letter-spacing:.08em;border:1px solid #0091FF;border-radius:3px;padding:2px 6px;white-space:nowrap;margin-left:12px'>{owner}</div>
+              </div>
+              <div style='font-family:"Barlow",sans-serif;font-size:13px;color:#8A98B8;margin-top:6px'>{desc}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # ==================== SECTION F: EXPORT REPORT ====================
         st.markdown("### 📎 Export Report")
-        
+
         report_data = {
-            "bank": "ZB Bank",
+            "bank": r_bank,
             "report_date": report_date,
-            "period": latest["Year"],
+            "period": r_period,
             "metrics": {
-                "npl_ratio": float(latest["NPL_Ratio"]),
-                "rcfe": float(latest["RCFE"]),
-                "capital_adequacy": float(latest["Capital_Adequacy"]),
-                "roa": float(latest["ROA"]),
-                "loan_to_deposit": float(latest["Loan_to_Deposit"]),
-                "overdue_facilities": float(latest["Overdue_Facilities_pct"]),
-                "provisioning_coverage": float(latest["Provisioning_Coverage"])
+                "npl_ratio": r_npl,
+                "capital_adequacy": r_cap,
+                "roa": r_roa,
+                "loan_to_deposit_ratio": r_ldr,
+                "overdue_facilities": r_overdue,
+                "provisioning_coverage": r_prov,
             },
             "committee": {
-                "avg_expertise": float(avg_exp),
-                "members": len(committee),
-                "risk_certified": int(committee["Risk_Management_Certified"].sum())
+                "avg_expertise": float(r_avg_exp_actual),
+                "members": len(r_comm),
+                "risk_certified": int(r_comm["Risk_Management_Certified"].sum())
             },
             "corrective_actions": {
                 "total": len(st.session_state.corrective_actions),
@@ -796,19 +878,23 @@ def main_app():
             },
             "alerts": len(alerts)
         }
-        
+
         report_json = json.dumps(report_data, indent=2, default=convert_to_serializable)
-        
-        col1, col2 = st.columns(2)
+
+        col1, col2, col3 = st.columns(3)
         with col1:
-            st.download_button("⬇ Download Full Report (JSON)", report_json,
-                              file_name=f"zb_bank_report_{datetime.datetime.now().strftime('%Y%m%d')}.json",
+            st.download_button("⬇ Download Report (JSON)", report_json,
+                              file_name=f"{r_bank.replace(' ','_')}_report_{r_period}.json",
                               mime="application/json")
         with col2:
-            # Export corrective actions as CSV
+            csv_comm = r_comm.to_csv(index=False)
+            st.download_button("⬇ Export Committee Data (CSV)", csv_comm,
+                              file_name=f"{r_bank.replace(' ','_')}_committee_{r_period}.csv",
+                              mime="text/csv")
+        with col3:
             if st.session_state.corrective_actions:
-                actions_df = pd.DataFrame(st.session_state.corrective_actions)
-                csv_actions = actions_df.to_csv(index=False)
+                actions_df2 = pd.DataFrame(st.session_state.corrective_actions)
+                csv_actions = actions_df2.to_csv(index=False)
                 st.download_button("⬇ Export Corrective Actions (CSV)", csv_actions,
                                   file_name=f"corrective_actions_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
                                   mime="text/csv")
